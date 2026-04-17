@@ -1,0 +1,7 @@
+target/
+*.rom
+.DS_Store
+.idea/
+.vscode/
+*.iml
+Cargo.lock

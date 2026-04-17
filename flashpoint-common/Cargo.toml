@@ -1,0 +1,10 @@
+[package]
+name = "flashpoint-common"
+version.workspace = true
+edition.workspace = true
+
+[features]
+default = ["std"]
+std = []
+
+[dependencies]

@@ -1,0 +1,18 @@
+[package]
+name = "boot-rom"
+version.workspace = true
+edition.workspace = true
+
+# boot-rom is hardware-agnostic — it calls the Platform trait only.
+# Target: xtensa-esp32-espidf (std via esp-idf)
+# Requires: Xtensa toolchain + esp-idf via espup
+
+[dependencies]
+flashpoint-common = { path = "../flashpoint-common", default-features = false }
+
+# The Platform trait is defined in flash-rom. boot-rom depends on it at link
+# time via the vtable pointer published at PLATFORM_PTR_ADDR — not as a Cargo dep.
+# This keeps boot-rom free of any hardware crate dependency.
+
+# TODO (step 0.5): uncomment when ESP32 toolchain is confirmed installed
+# esp-idf-sys = { version = "0.34", features = ["binstart"] }

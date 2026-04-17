@@ -1,0 +1,17 @@
+[package]
+name = "stage1"
+version.workspace = true
+edition.workspace = true
+
+# Stage 1 runs on the bare ESP32, before the OS is loaded.
+# Target: xtensa-esp32-none-elf  (set in .cargo/config.toml for this crate)
+# Requires: Xtensa toolchain via espup
+
+[dependencies]
+flashpoint-common = { path = "../flashpoint-common", default-features = false }
+
+# TODO (step 0.5): uncomment when ESP32 toolchain is confirmed installed
+# esp-idf-sys  = { version = "0.34", features = ["binstart"] }
+# esp-idf-hal  = "0.43"
+# embedded-sdmmc = "0.7"
+# sha2 = { version = "0.10", default-features = false, features = ["force-soft"] }

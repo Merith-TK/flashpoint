@@ -1,0 +1,17 @@
+[package]
+name = "tools"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "mkrom"
+path = "src/main.rs"
+
+[dependencies]
+flashpoint-common = { path = "../flashpoint-common" }
+sha2 = "0.10"
+clap = { version = "4", features = ["derive"] }
+hex = "0.4"
+
+[dev-dependencies]
+tempfile = "3"
