@@ -1,5 +1,12 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
+#[cfg(feature = "std")]
+use std::vec::Vec;
+#[cfg(not(feature = "std"))]
+extern crate alloc;
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
+
 // ─── Header constants ────────────────────────────────────────────────────────
 
 pub const MAGIC: [u8; 6]          = *b"BROM\x00\x01";
@@ -206,6 +213,45 @@ pub fn build_header(
     // reserved bytes (0x3C..0x3F) remain zero
     h[OFF_HEADER_END] = HEADER_END_MAGIC;
     h
+}
+
+// ─── Platform HAL types ──────────────────────────────────────────────────────
+
+/// A single scanline of pixel data (RGB565, width × 2 bytes).
+/// The boot-rom renders one row at a time; the HAL impl transfers it to the display.
+pub struct FrameBuffer<'a> {
+    pub y: u16,
+    pub data: &'a [u8],
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlatformError {
+    SdReadError,
+    SdWriteError,
+    NvsError,
+    DisplayError,
+    NotSupported,
+}
+
+/// Hardware abstraction contract.
+/// flash-rom implements this for each supported board.
+/// boot-rom calls only these methods — zero hardware code in boot-rom.
+pub trait Platform {
+    fn sd_read_sectors(&self, start: u32, buf: &mut [u8])  -> Result<(), PlatformError>;
+    fn sd_write_sectors(&self, start: u32, buf: &[u8])     -> Result<(), PlatformError>;
+    fn sd_sector_count(&self) -> u32;
+    fn nvs_read(&self, ns: &str, key: &str)                -> Result<Vec<u8>, PlatformError>;
+    fn nvs_write(&self, ns: &str, key: &str, val: &[u8])   -> Result<(), PlatformError>;
+    fn nvs_delete(&self, ns: &str, key: &str)              -> Result<(), PlatformError>;
+    fn display_flush(&self, buf: &FrameBuffer)             -> Result<(), PlatformError>;
+    fn display_clear(&self)                                -> Result<(), PlatformError>;
+    fn display_width(&self)  -> u16;
+    fn display_height(&self) -> u16;
+    fn poll_event(&self) -> Option<Event>;
+    fn battery_percent(&self) -> u8;
+    fn chip_id(&self)         -> ChipId;
+    fn reboot(&self)          -> !;
+    fn sleep_ms(&self, ms: u32);
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────────────

@@ -6,6 +6,13 @@ members = [
     "stage1",
     "boot-rom",
     "flash-rom",
+    "emulator",
+]
+# emulator targets xtensa-esp32-espidf — exclude from default host builds
+default-members = [
+    "flashpoint-common",
+    "tools",
+    "xtask",
 ]
 resolver = "2"
 

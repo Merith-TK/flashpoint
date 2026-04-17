@@ -1,0 +1,10 @@
+[package]
+name = "emulator"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+esp-idf-svc = { version = "0.52", features = ["binstart"] }
+
+[build-dependencies]
+embuild = "0.33"
