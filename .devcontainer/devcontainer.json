@@ -1,0 +1,50 @@
+{
+  "name": "Flashpoint — Rust & Go Microcontroller Dev",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": "."
+  },
+
+  // Mount cargo registry and TinyGo cache as named volumes to persist across rebuilds
+  "mounts": [
+    "source=flashpoint-cargo-registry,target=/home/builder/.cargo/registry,type=volume",
+    "source=flashpoint-cargo-git,target=/home/builder/.cargo/git,type=volume",
+    "source=flashpoint-tinygo-cache,target=/home/builder/.cache/tinygo,type=volume"
+  ],
+
+  "remoteUser": "builder",
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        // Rust
+        "rust-lang.rust-analyzer",
+        "tamasfe.even-better-toml",
+        "vadimcn.vscode-lldb",
+        // Go / TinyGo
+        "golang.go",
+        // Embedded / hardware
+        "probe-rs.probe-rs-debugger",
+        "marus25.cortex-debug",
+        // General
+        "ms-vscode.hexeditor",
+        "serayuzgur.crates"
+      ],
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "bash",
+        "rust-analyzer.checkOnSave.command": "clippy",
+        "rust-analyzer.cargo.allFeatures": true,
+        "go.toolsManagement.autoUpdate": true
+      }
+    }
+  },
+
+  // Give container access to USB devices for flashing (Linux host)
+  "runArgs": [
+    "--privileged",
+    "--device=/dev/ttyUSB0",
+    "--device=/dev/ttyACM0"
+  ],
+
+  "postCreateCommand": "echo 'source ~/export-esp.sh 2>/dev/null || true' >> ~/.bashrc && echo 'Dev container ready.'"
+}
