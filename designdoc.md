@@ -108,7 +108,7 @@ The magic bytes at `BOOTROM_OFFSET` serve as a **corruption check only**, not a 
 - If `BOOTROM_SIZE > 0` and magic is invalid: corruption detected, fall back to SD.
 - **Recovery scan (optional):** as a last resort, Stage 1 may scan forward from `BOOTROM_OFFSET` looking for `BROM\x00\x01` before giving up entirely.
 
-When Stage 1 chainloads from SD, it writes the `sdboot.rom` payload to `BOOTROM_OFFSET` in flash and restarts. On the next boot the internal magic check passes and it boots directly — the SD card is not read again unless a new `sdboot.rom` appears.
+When Stage 1 chainloads from SD, it loads the `sdboot.rom` payload into PSRAM and jumps to it directly. Internal flash is never written. The SD card is read on every boot where `sdboot.rom` is present — if removed, Stage 1 falls back to the embedded `boot-rom`.
 
 ### 2.3 SD Card Layout
 
@@ -691,7 +691,7 @@ Everything in Phase 0 must work before any other phase begins.
 |---|---|---|
 | `mkrom` tool | CLI wrapping a binary with a valid Flashpoint header | P0 |
 | `stage1/build.rs` | Generates `BOOTROM_OFFSET`, `BOOTROM_SIZE`, `NVS_OFFSET` as `cargo:rustc-env` | P0 |
-| Stage 1 loader | SD init, FatFS mount, header validate, write to `BOOTROM_OFFSET`, restart | P0 |
+| Stage 1 loader | SD init, FatFS mount, header validate, load into PSRAM, jump to entry point | P0 |
 | Fallback chain | Magic check → SD fallback → recovery scan → panic | P0 |
 | CYD HAL stub | Enough display + input to verify boot on hardware | P0 |
 | Minimal boot-rom stub | Boots, renders "Flashpoint OK", halts. Package as `sdboot.rom`. | P0 |
