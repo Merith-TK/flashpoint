@@ -28,7 +28,7 @@
         "marus25.cortex-debug",
         // General
         "ms-vscode.hexeditor",
-        "serayuzgur.crates"
+        "fill-labs.dependi"
       ],
       "settings": {
         "terminal.integrated.defaultProfile.linux": "bash",
