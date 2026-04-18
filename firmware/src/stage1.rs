@@ -4,7 +4,7 @@
 // Validates the ROM header, publishes the Platform vtable pointer,
 // and jumps to the kernel entry point.
 
-use flashpoint_common::*;
+use common::*;
 
 // ─── Compile-time flash layout (from build.rs) ───────────────────────────────
 
@@ -116,7 +116,7 @@ fn sd_load_addr() -> u32 { 0x3FFB_8000 }
 #[cfg(test)]
 mod tests {
     use super::*;
-    use flashpoint_common::build_header;
+    use common::build_header;
 
     fn dummy_checksum() -> [u8; 32] { [0; 32] }
 

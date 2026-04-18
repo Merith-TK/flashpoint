@@ -2,7 +2,7 @@ use std::fs;
 use std::io::Write;
 use std::path::Path;
 use sha2::{Sha256, Digest};
-use flashpoint_common::*;
+use common::*;
 
 // ─── pack ────────────────────────────────────────────────────────────────────
 

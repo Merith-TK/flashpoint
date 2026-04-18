@@ -9,7 +9,7 @@ edition.workspace = true
 # Requires: Xtensa toolchain + esp-idf via espup
 
 [dependencies]
-flashpoint-common = { path = "../common", default-features = false }
+common = { path = "../common", default-features = false }
 
 # The Platform trait is defined in common. kernel depends on it at link
 # time via the vtable pointer published at PLATFORM_PTR_ADDR — not as a Cargo dep.

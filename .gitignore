@@ -1,9 +1,8 @@
 target/
+.embuild/
 *.rom
+emulator/flash.bin
 .DS_Store
 .idea/
 .vscode/
 *.iml
-Cargo.lock
-.embuild/
-emulator/flash.bin

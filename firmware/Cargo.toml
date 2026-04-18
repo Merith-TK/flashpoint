@@ -9,7 +9,7 @@ edition.workspace = true
 # Requires: Xtensa toolchain + esp-idf via espup
 
 [dependencies]
-flashpoint-common = { path = "../common", default-features = false }
+common = { path = "../common", default-features = false }
 
 # TODO (step 0.5): uncomment when ESP32 toolchain is confirmed installed
 # esp-idf-sys  = { version = "0.34", features = ["binstart"] }

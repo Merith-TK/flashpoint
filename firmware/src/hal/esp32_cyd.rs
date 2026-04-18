@@ -9,7 +9,7 @@
 // Everything here is stubbed with todo!() until step 0.5.
 
 use super::platform::{FrameBuffer, Platform, PlatformError};
-use flashpoint_common::{ChipId, Event};
+use common::{ChipId, Event};
 
 pub struct CydPlatform {
     // TODO (step 0.5): hold SPI bus handles, display driver, touch driver, SD handle, NVS

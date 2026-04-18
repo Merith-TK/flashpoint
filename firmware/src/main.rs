@@ -9,9 +9,15 @@
 
 extern crate alloc;
 
-pub mod capabilities;
 pub mod hal;
 mod stage1;
+
+// CYD (ESP32-2432S028R) device capabilities:
+//   ILI9341 TFT display + XPT2046 resistive touch
+//   No PSRAM, no WiFi in base firmware (WiFi extension is Phase 4)
+pub const DEVICE_FEATURES: u64 =
+    common::FEAT_DISPLAY_TFT |
+    common::FEAT_INPUT_TOUCH;
 
 #[cfg(not(test))]
 #[no_mangle]
