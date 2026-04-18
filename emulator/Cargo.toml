@@ -5,6 +5,7 @@ edition.workspace = true
 
 [dependencies]
 esp-idf-svc = { version = "0.52", features = ["binstart"] }
+log = "0.4"
 
 [build-dependencies]
 embuild = "0.33"

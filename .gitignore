@@ -6,3 +6,4 @@ target/
 *.iml
 Cargo.lock
 .embuild/
+emulator/flash.bin

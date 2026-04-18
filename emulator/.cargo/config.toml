@@ -3,6 +3,7 @@ target = "xtensa-esp32-espidf"
 
 [target.xtensa-esp32-espidf]
 linker = "ldproxy"
+runner = "qemu-esp-xtensa -machine esp32 -drive if=mtd,format=raw,file="
 rustflags = ["--cfg", "espidf_time64"]
 
 [unstable]
