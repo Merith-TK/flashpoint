@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+common = { path = "../common", features = ["std"] }
 esp-idf-svc = { version = "0.52", features = ["binstart"] }
 log = "0.4"
 

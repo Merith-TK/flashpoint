@@ -279,13 +279,20 @@ fn cmd_build_image(board: &str, output: &Path) -> Result<(), String> {
 // ─── emu-build ───────────────────────────────────────────────────────────────
 
 fn cmd_emu_build(output: &Path) -> Result<(), String> {
-    println!("==> compiling emulator (xtensa-esp32-espidf)");
+    // Step 1: build kernel → flashpoint.rom (embedded into the emulator binary)
+    let rom = workspace_root().join("flashpoint.rom");
+    cmd_build_boot("esp32", "0.1.0", None, None, &rom)?;
+
+    // Step 2: compile emulator with ROM embedded at compile time
+    println!("==> compiling emulator (FLASHPOINT_ROM={})", rom.display());
     run(esp_cmd("cargo")
-        .args(["build", "-p", "emulator", "--release"]))?;
+        .args(["build", "-p", "emulator", "--release"])
+        .env("FLASHPOINT_ROM", rom.to_str().unwrap()))?;
 
     let bin = workspace_root()
         .join("target/xtensa-esp32-espidf/release/emulator");
 
+    // Step 3: merge into a single flash image for QEMU
     println!("==> creating merged flash image → {}", output.display());
     run(Command::new("espflash")
         .args(["save-image", "--chip", "esp32", "--merge",

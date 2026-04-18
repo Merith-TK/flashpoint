@@ -297,6 +297,44 @@ pub trait Platform {
     fn flashpoint_version(&self) -> (u32, u32);
 }
 
+// ─── Hardware-agnostic kernel entry ─────────────────────────────────────────
+
+/// Kernel entry point callable by both real hardware (via Platform ptr handoff)
+/// and the emulator (directly). Zero hardware code — only Platform trait calls.
+pub fn boot_main(platform: &dyn Platform) -> ! {
+    platform.display_clear().ok();
+
+    let w = platform.display_width();
+    let h = platform.display_height();
+    let mut row = [0u8; 640]; // max width (320) × 2 bytes/pixel
+
+    for y in 0..h {
+        render_row(y, h, w, &mut row[..w as usize * 2]);
+        platform.display_flush(&FrameBuffer {
+            y,
+            data: &row[..w as usize * 2],
+        }).ok();
+    }
+
+    loop {
+        if let Some(Event::BtnSelect) = platform.poll_event() {
+            platform.reboot();
+        }
+        platform.sleep_ms(50);
+    }
+}
+
+fn render_row(y: u16, h: u16, w: u16, row: &mut [u8]) {
+    let text_top    = h * 2 / 5;
+    let text_bottom = h * 3 / 5;
+    let color: u16 = if y >= text_top && y < text_bottom { 0xFFFF } else { 0x000F };
+    let bytes = color.to_le_bytes();
+    for i in (0..w as usize * 2).step_by(2) {
+        row[i]     = bytes[0];
+        row[i + 1] = bytes[1];
+    }
+}
+
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
