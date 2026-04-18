@@ -4,5 +4,10 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-# clap for subcommand parsing; no flashpoint-common dep needed here
-clap = { version = "4", features = ["derive"] }
+clap             = { version = "4", features = ["derive"] }
+flashpoint-common = { path = "../common" }
+sha2             = "0.10"
+hex              = "0.4"
+
+[dev-dependencies]
+tempfile = "3"

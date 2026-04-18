@@ -1,9 +1,7 @@
 [workspace]
 members = [
     "common",
-    "tools",
     "xtask",
-    "stage1",
     "kernel",
     "firmware",
     "emulator",
@@ -11,7 +9,6 @@ members = [
 # embedded crates target xtensa-esp32-espidf — exclude from default host builds
 default-members = [
     "common",
-    "tools",
     "xtask",
 ]
 resolver = "2"

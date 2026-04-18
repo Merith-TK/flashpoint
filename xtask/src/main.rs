@@ -2,6 +2,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus};
 use clap::{Parser, Subcommand};
 
+mod rom;
+
 // ─── CLI ─────────────────────────────────────────────────────────────────────
 
 #[derive(Parser)]
@@ -89,6 +91,25 @@ enum Task {
         #[arg(long)]
         embed_boot: bool,
     },
+
+    /// Wrap a raw binary with a Flashpoint ROM header → flashpoint.rom
+    Pack {
+        #[arg(long)]
+        platform: String,
+        #[arg(long)]
+        version: String,
+        #[arg(long)]
+        requires: Option<String>,
+        #[arg(long, default_value_t = false)]
+        compress: bool,
+        input: PathBuf,
+        output: PathBuf,
+    },
+
+    /// Parse and validate a flashpoint.rom file
+    Verify {
+        input: PathBuf,
+    },
 }
 
 // ─── Main ────────────────────────────────────────────────────────────────────
@@ -109,6 +130,10 @@ fn main() {
             cmd_emu_run(&qemu_args),
         Task::Flash { port, board, embed_boot } =>
             cmd_flash(&port, &board, embed_boot),
+        Task::Pack { platform, version, requires, compress, input, output } =>
+            rom::do_pack(&platform, &version, requires.as_deref(), compress, &input, &output),
+        Task::Verify { input } =>
+            rom::do_verify(&input),
     };
     if let Err(e) = result {
         eprintln!("xtask error: {e}");
@@ -193,16 +218,7 @@ fn cmd_build_boot(
         .join("target").join(target).join("release").join("kernel");
 
     println!("==> packaging {} → {}", bin.display(), output.display());
-    let mut mkrom = Command::new("cargo");
-    mkrom.args(["run", "-p", "tools", "--", "pack",
-        "--platform", platform,
-        "--version", version,
-    ]);
-    if let Some(r) = requires {
-        mkrom.args(["--requires", r]);
-    }
-    mkrom.arg(bin.to_str().unwrap()).arg(output.to_str().unwrap());
-    run(&mut mkrom)
+    rom::do_pack(platform, version, requires, false, &bin, output)
 }
 
 // ─── build-flash ─────────────────────────────────────────────────────────────
