@@ -630,15 +630,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "emulator"
-version = "0.1.0"
-dependencies = [
- "embuild",
- "esp-idf-svc",
- "log",
-]
-
-[[package]]
 name = "enumset"
 version = "1.1.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -774,6 +765,9 @@ name = "firmware"
 version = "0.1.0"
 dependencies = [
  "common",
+ "embuild",
+ "esp-idf-svc",
+ "log",
 ]
 
 [[package]]

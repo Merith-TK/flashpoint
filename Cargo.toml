@@ -4,7 +4,6 @@ members = [
     "xtask",
     "kernel",
     "firmware",
-    "emulator",
 ]
 # embedded crates target xtensa-esp32-espidf — exclude from default host builds
 default-members = [

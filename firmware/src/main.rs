@@ -1,31 +1,44 @@
-// firmware — device firmware burned once to internal flash.
-//
-// Contains: Stage 1 chainloader, all hardware drivers, Platform trait impl.
-// Loads the kernel (flashpoint.rom) from SD card or internal flash,
-// then jumps to it after publishing the Platform vtable pointer.
+// firmware — the Flash-ROM burned to the device.
+// Select board at build time:
+//   (default)                            → board-cyd (CYD hardware)
+//   --no-default-features --features board-qemu → QEMU emulator
 
-#![cfg_attr(not(test), no_std)]
-#![cfg_attr(not(test), no_main)]
+// board-cyd: bare-metal no_std ESP-IDF app; board-qemu: std ESP-IDF via esp-idf-svc
+#![cfg_attr(all(not(test), feature = "board-cyd"), no_std)]
+#![cfg_attr(all(not(test), feature = "board-cyd"), no_main)]
 
+#[cfg(feature = "board-cyd")]
 extern crate alloc;
 
 pub mod hal;
 mod stage1;
 
-// CYD (ESP32-2432S028R) device capabilities:
-//   ILI9341 TFT display + XPT2046 resistive touch
-//   No PSRAM, no WiFi in base firmware (WiFi extension is Phase 4)
+// CYD (ESP32-2432S028R) device capabilities.
+// QEMU mirrors these for test parity.
 pub const DEVICE_FEATURES: u64 =
     common::FEAT_DISP_TFT |
     common::FEAT_INPUT_TOUCH;
 
-#[cfg(not(test))]
+// ── board-cyd entry point ─────────────────────────────────────────────────────
+#[cfg(all(not(test), feature = "board-cyd"))]
 #[no_mangle]
 extern "C" fn app_main() {
     stage1::stage1_main()
 }
 
-#[cfg(not(test))]
+// ── board-qemu entry point (via esp-idf-svc binstart) ────────────────────────
+#[cfg(feature = "board-qemu")]
+fn main() {
+    use esp_idf_svc::log::EspLogger;
+    EspLogger::initialize_default();
+    log::info!("================================");
+    log::info!("  FLASHPOINT  v0.1.0  [QEMU]");
+    log::info!("================================");
+    stage1::stage1_main()
+}
+
+// ── board-cyd panic handler ───────────────────────────────────────────────────
+#[cfg(all(not(test), feature = "board-cyd"))]
 #[panic_handler]
 fn panic(_: &core::panic::PanicInfo) -> ! {
     loop {}

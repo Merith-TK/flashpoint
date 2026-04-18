@@ -1,9 +1,18 @@
+// EmulatorPlatform — Platform trait impl for QEMU (board-qemu feature).
+// All display output goes to UART via log::info!.
+// Input always returns None — boot_main loops until BtnSelect, which never fires;
+// emu-run kills QEMU after seeing the expected log output.
+
 use common::{
     ChipId, Event, FrameBuffer, Platform, PlatformError,
     FLASHPOINT_CURRENT, FLASHPOINT_LAST_BREAKING,
 };
 
 pub struct EmulatorPlatform;
+
+impl EmulatorPlatform {
+    pub fn new() -> Self { EmulatorPlatform }
+}
 
 impl Platform for EmulatorPlatform {
     fn display_clear(&self) -> Result<(), PlatformError> {
@@ -12,7 +21,7 @@ impl Platform for EmulatorPlatform {
     }
 
     fn display_flush(&self, buf: &FrameBuffer) -> Result<(), PlatformError> {
-        // Log every 60 scanlines — keeps QEMU output readable
+        // Log every 60 scanlines to keep output readable
         if buf.y % 60 == 0 {
             log::info!("[display] scanline y={}", buf.y);
         }
@@ -22,12 +31,10 @@ impl Platform for EmulatorPlatform {
     fn display_width(&self)  -> u16 { 320 }
     fn display_height(&self) -> u16 { 240 }
 
-    // No input in QEMU — boot_main loops until BtnSelect, which never arrives.
-    // emu-run kills QEMU after seeing "FLASHPOINT OK" in the log.
     fn poll_event(&self) -> Option<Event> { None }
 
-    fn battery_percent(&self) -> u8 { 100 }
-    fn chip_id(&self) -> ChipId { ChipId::Esp32 }
+    fn battery_percent(&self) -> u8  { 100 }
+    fn chip_id(&self)         -> ChipId { ChipId::Esp32 }
 
     fn sleep_ms(&self, ms: u32) {
         use esp_idf_svc::hal::delay::FreeRtos;
@@ -35,7 +42,7 @@ impl Platform for EmulatorPlatform {
     }
 
     fn reboot(&self) -> ! {
-        // Never called in QEMU (poll_event always returns None), but required by trait.
+        // Never reached in QEMU (poll_event always returns None)
         panic!("reboot requested in emulator");
     }
 
@@ -43,7 +50,6 @@ impl Platform for EmulatorPlatform {
         (FLASHPOINT_CURRENT, FLASHPOINT_LAST_BREAKING)
     }
 
-    // SD / NVS: not present in emulator
     fn sd_read_sectors(&self, _: u32, _: &mut [u8]) -> Result<(), PlatformError> {
         Err(PlatformError::SdReadError)
     }

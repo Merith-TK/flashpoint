@@ -3,17 +3,26 @@ name = "firmware"
 version.workspace = true
 edition.workspace = true
 
-# firmware runs on the ESP32 via esp-idf (std).
-# Contains: Stage 1 chainloader, all hardware drivers, Platform trait impl.
-# Target: xtensa-esp32-espidf (set in .cargo/config.toml for this crate)
-# Requires: Xtensa toolchain + esp-idf via espup
+# firmware is the Flash-ROM for all supported boards.
+# Select a board at build time via feature flag:
+#   --features board-cyd   (default) — CYD ESP32-2432S028R
+#   --no-default-features --features board-qemu — QEMU xtensa-esp32
+
+[features]
+default = ["board-cyd"]
+board-cyd  = []
+board-qemu = ["dep:esp-idf-svc", "dep:log", "common/std"]
 
 [dependencies]
 common = { path = "../common", default-features = false }
+esp-idf-svc = { version = "0.52", features = ["binstart"], optional = true }
+log = { version = "0.4", optional = true }
 
-# TODO (step 0.5): uncomment when ESP32 toolchain is confirmed installed
-# esp-idf-sys  = { version = "0.34", features = ["binstart"] }
-# esp-idf-hal  = "0.43"
-# mipidsi      = "0.8"
+# TODO (step 0.5 / board-cyd): uncomment when CYD HAL is implemented
+# esp-idf-hal       = "0.43"
+# mipidsi           = "0.8"
 # display-interface-spi = "0.4"
-# embedded-sdmmc = "0.7"
+# embedded-sdmmc    = "0.7"
+
+[build-dependencies]
+embuild = "0.33"

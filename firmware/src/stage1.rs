@@ -1,12 +1,12 @@
 // Stage 1 — Flashpoint chainload loader
 //
-// Reads SD card first, falls back to internal flash.
-// Validates the ROM header, publishes the Platform vtable pointer,
-// and jumps to the kernel entry point.
+// Dispatches to the correct boot path based on the board feature:
+//   board-qemu  → validate embedded ROM → call common::boot_main directly
+//   board-cyd   → try SD card → fallback to internal flash → LED error
 
 use common::*;
 
-// ─── Compile-time flash layout (from build.rs) ───────────────────────────────
+// ── Compile-time flash layout (board-cyd, from build.rs) ─────────────────────
 
 const BOOTROM_OFFSET: u32 = {
     match u32::from_str_radix(env!("BOOTROM_OFFSET"), 10) {
@@ -28,47 +28,68 @@ const NVS_OFFSET: u32 = {
     }
 };
 
-// ─── Hardware stubs (replaced in step 0.5) ───────────────────────────────────
+// ── ROM embedded at compile time (board-qemu, from build.rs) ─────────────────
 
-mod hw {
-    pub fn sd_init() -> bool { false }
+#[cfg(feature = "board-qemu")]
+static EMBEDDED_ROM: &[u8] = include_bytes!(env!("FLASHPOINT_ROM_PATH"));
 
-    pub fn sd_read_rom(buf: &mut [u8]) -> Option<usize> {
-        let _ = buf;
-        None
-    }
-
-    pub fn flash_read(offset: u32, buf: &mut [u8]) {
-        let _ = (offset, buf);
-    }
-
-    pub fn jump_to(addr: u32) -> ! {
-        let _ = addr;
-        loop {}
-    }
-
-    pub fn publish_platform_ptr(_ptr: *const ()) {}
-
-    pub fn error_led(code: ErrorCode) -> ! {
-        let _ = code;
-        loop {}
-    }
-
-    #[derive(Clone, Copy)]
-    pub enum ErrorCode {
-        NoBoot,
-        BadMagic,
-        FeatureMismatch,
-        BadChecksum,
-    }
-}
-
-// ─── Boot logic ──────────────────────────────────────────────────────────────
+// ── Entry point ───────────────────────────────────────────────────────────────
 
 pub fn stage1_main() -> ! {
+    #[cfg(feature = "board-qemu")]
+    { qemu_boot() }
+
+    #[cfg(feature = "board-cyd")]
+    { cyd_boot() }
+
+    // Compile error if neither board feature is active — intentional.
+    // One of the blocks above always diverges (-> !) when a valid feature is set.
+    #[cfg(not(any(feature = "board-qemu", feature = "board-cyd")))]
+    core::compile_error!("firmware requires --features board-cyd or --features board-qemu");
+}
+
+// ── QEMU boot path ────────────────────────────────────────────────────────────
+
+#[cfg(feature = "board-qemu")]
+fn qemu_boot() -> ! {
+    match validate_header(
+        EMBEDDED_ROM,
+        crate::DEVICE_FEATURES,
+        PLATFORM_ESP32,
+        FLASHPOINT_CURRENT,
+        FLASHPOINT_LAST_BREAKING,
+    ) {
+        Ok(payload_offset) => {
+            log::info!("[stage1] header OK — payload at offset {}", payload_offset);
+        }
+        Err(e) => {
+            log::error!("[stage1] header validation failed: {:?}", e);
+            log::error!("[stage1] rebuild with FLASHPOINT_ROM set for full E2E");
+            loop {}
+        }
+    }
+
+    let platform = crate::hal::ActivePlatform::new();
+    let platform_ref: &dyn Platform = &platform;
+    let fat_ptr = &platform_ref as *const &dyn Platform as *const ();
+    unsafe {
+        core::ptr::write(PLATFORM_PTR_ADDR as *mut *const (), fat_ptr as *const ());
+    }
+
+    log::info!("[stage1] platform ptr → 0x{:08X}", PLATFORM_PTR_ADDR);
+    log::info!("[stage1] jumping to kernel...");
+    log::info!("================================");
+
+    common::boot_main(&platform)
+}
+
+// ── CYD boot path ─────────────────────────────────────────────────────────────
+
+#[cfg(feature = "board-cyd")]
+fn cyd_boot() -> ! {
     if hw::sd_init() {
         let mut buf = [0u8; HEADER_V1_SIZE + 512];
-        if let Some(_) = hw::sd_read_rom(&mut buf) {
+        if hw::sd_read_rom(&mut buf).is_some() {
             match try_boot_from_buffer(&buf) {
                 Ok(entry) => {
                     hw::publish_platform_ptr(core::ptr::null());
@@ -86,7 +107,7 @@ pub fn stage1_main() -> ! {
     let mut hdr_buf = [0u8; HEADER_V1_SIZE];
     hw::flash_read(BOOTROM_OFFSET, &mut hdr_buf);
 
-    match validate_header(&hdr_buf, device_features(), PLATFORM_ESP32, common::FLASHPOINT_CURRENT, common::FLASHPOINT_LAST_BREAKING) {
+    match validate_header(&hdr_buf, crate::DEVICE_FEATURES, PLATFORM_ESP32, FLASHPOINT_CURRENT, FLASHPOINT_LAST_BREAKING) {
         Ok(_) => {
             let entry = flash_xip_addr(BOOTROM_OFFSET) + HEADER_V1_SIZE as u32;
             hw::publish_platform_ptr(core::ptr::null());
@@ -98,20 +119,33 @@ pub fn stage1_main() -> ! {
     }
 }
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// ── Hardware stubs (board-cyd, replaced in Plan 05) ───────────────────────────
 
-fn try_boot_from_buffer(buf: &[u8]) -> Result<u32, HeaderError> {
-    let payload_offset = validate_header(buf, device_features(), PLATFORM_ESP32, common::FLASHPOINT_CURRENT, common::FLASHPOINT_LAST_BREAKING)?;
-    Ok(sd_load_addr() + payload_offset as u32)
+#[cfg(feature = "board-cyd")]
+#[allow(dead_code)]
+mod hw {
+    pub fn sd_init() -> bool { false }
+    pub fn sd_read_rom(buf: &mut [u8]) -> Option<usize> { let _ = buf; None }
+    pub fn flash_read(offset: u32, buf: &mut [u8]) { let _ = (offset, buf); }
+    pub fn jump_to(addr: u32) -> ! { let _ = addr; loop {} }
+    pub fn publish_platform_ptr(_ptr: *const ()) {}
+    pub fn error_led(code: ErrorCode) -> ! { let _ = code; loop {} }
+
+    #[derive(Clone, Copy)]
+    pub enum ErrorCode { NoBoot, BadMagic, FeatureMismatch, BadChecksum }
 }
 
-fn device_features() -> u64 { 0 } // TODO (step 0.5): read from capabilities module
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+fn try_boot_from_buffer(buf: &[u8]) -> Result<u32, HeaderError> {
+    let offset = validate_header(buf, crate::DEVICE_FEATURES, PLATFORM_ESP32, FLASHPOINT_CURRENT, FLASHPOINT_LAST_BREAKING)?;
+    Ok(sd_load_addr() + offset as u32)
+}
 
 fn flash_xip_addr(offset: u32) -> u32 { 0x400C_0000 + offset }
+fn sd_load_addr()               -> u32 { 0x3FFB_8000 }
 
-fn sd_load_addr() -> u32 { 0x3FFB_8000 }
-
-// ─── Tests ───────────────────────────────────────────────────────────────────
+// ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
@@ -135,13 +169,13 @@ mod tests {
 
     #[test]
     fn try_boot_accepts_valid_header() {
-        let hdr = build_header(PLATFORM_ESP32, [0, 1, 0], common::FLASHPOINT_CURRENT, 0, 0, 64, dummy_checksum());
+        let hdr = build_header(PLATFORM_ESP32, [0, 1, 0], FLASHPOINT_CURRENT, 0, 0, 64, dummy_checksum());
         assert!(try_boot_from_buffer(&hdr).is_ok());
     }
 
     #[test]
     fn try_boot_rejects_feature_mismatch() {
-        let hdr = build_header(PLATFORM_ESP32, [0, 1, 0], common::FLASHPOINT_CURRENT, 0, FEAT_PSRAM, 64, dummy_checksum());
+        let hdr = build_header(PLATFORM_ESP32, [0, 1, 0], FLASHPOINT_CURRENT, 0, FEAT_PSRAM, 64, dummy_checksum());
         assert_eq!(try_boot_from_buffer(&hdr), Err(HeaderError::MissingFeatures));
     }
 }
