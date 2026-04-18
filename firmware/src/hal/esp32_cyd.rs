@@ -8,8 +8,8 @@
 //
 // Everything here is stubbed with todo!() until step 0.5.
 
-use super::platform::{FrameBuffer, Platform, PlatformError};
-use common::{ChipId, Event};
+use super::{FrameBuffer, Platform, PlatformError};
+use common::{ChipId, Event, FLASHPOINT_CURRENT, FLASHPOINT_LAST_BREAKING};
 
 pub struct CydPlatform {
     // TODO (step 0.5): hold SPI bus handles, display driver, touch driver, SD handle, NVS
@@ -74,6 +74,10 @@ impl Platform for CydPlatform {
 
     fn sleep_ms(&self, _ms: u32) {
         todo!("step 0.5: vTaskDelay or thread::sleep")
+    }
+
+    fn flashpoint_version(&self) -> (u32, u32) {
+        (FLASHPOINT_CURRENT, FLASHPOINT_LAST_BREAKING)
     }
 }
 

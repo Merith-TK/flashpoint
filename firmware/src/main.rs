@@ -16,7 +16,7 @@ mod stage1;
 //   ILI9341 TFT display + XPT2046 resistive touch
 //   No PSRAM, no WiFi in base firmware (WiFi extension is Phase 4)
 pub const DEVICE_FEATURES: u64 =
-    common::FEAT_DISPLAY_TFT |
+    common::FEAT_DISP_TFT |
     common::FEAT_INPUT_TOUCH;
 
 #[cfg(not(test))]

@@ -28,6 +28,10 @@ enum Task {
         #[arg(long, default_value = "0.1.0")]
         version: String,
 
+        /// Flashpoint API version this ROM targets (default: current firmware version)
+        #[arg(long)]
+        built_against: Option<String>,
+
         /// Required hardware features e.g. psram,wifi
         #[arg(long)]
         requires: Option<String>,
@@ -98,6 +102,9 @@ enum Task {
         platform: String,
         #[arg(long)]
         version: String,
+        /// Flashpoint API version this ROM targets (default: current firmware version)
+        #[arg(long)]
+        built_against: Option<String>,
         #[arg(long)]
         requires: Option<String>,
         #[arg(long, default_value_t = false)]
@@ -118,8 +125,8 @@ fn main() {
     let cli = Cli::parse();
     let result = match cli.command {
         Task::Setup => cmd_setup(),
-        Task::BuildBoot { platform, version, requires, output } =>
-            cmd_build_boot(&platform, &version, requires.as_deref(), &output),
+        Task::BuildBoot { platform, version, built_against, requires, output } =>
+            cmd_build_boot(&platform, &version, built_against.as_deref(), requires.as_deref(), &output),
         Task::BuildFlash { board, embed_boot, bootrom } =>
             cmd_build_flash(&board, embed_boot, bootrom.as_deref()),
         Task::BuildImage { board, output } =>
@@ -130,8 +137,8 @@ fn main() {
             cmd_emu_run(&qemu_args),
         Task::Flash { port, board, embed_boot } =>
             cmd_flash(&port, &board, embed_boot),
-        Task::Pack { platform, version, requires, compress, input, output } =>
-            rom::do_pack(&platform, &version, requires.as_deref(), compress, &input, &output),
+        Task::Pack { platform, version, built_against, requires, compress, input, output } =>
+            rom::do_pack(&platform, &version, built_against.as_deref(), requires.as_deref(), compress, &input, &output),
         Task::Verify { input } =>
             rom::do_verify(&input),
     };
@@ -205,6 +212,7 @@ fn which(bin: &str) -> bool {
 fn cmd_build_boot(
     platform: &str,
     version: &str,
+    built_against: Option<&str>,
     requires: Option<&str>,
     output: &Path,
 ) -> Result<(), String> {
@@ -218,7 +226,7 @@ fn cmd_build_boot(
         .join("target").join(target).join("release").join("kernel");
 
     println!("==> packaging {} → {}", bin.display(), output.display());
-    rom::do_pack(platform, version, requires, false, &bin, output)
+    rom::do_pack(platform, version, built_against, requires, false, &bin, output)
 }
 
 // ─── build-flash ─────────────────────────────────────────────────────────────
@@ -238,7 +246,7 @@ fn cmd_build_flash(
             Some(p) => p.to_path_buf(),
             None => {
                 let out = PathBuf::from("flashpoint.rom");
-                cmd_build_boot(board_to_platform(board), "0.1.0", None, &out)?;
+                cmd_build_boot(board_to_platform(board), "0.1.0", None, None, &out)?;
                 out
             }
         };

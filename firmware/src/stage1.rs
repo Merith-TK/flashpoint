@@ -86,7 +86,7 @@ pub fn stage1_main() -> ! {
     let mut hdr_buf = [0u8; HEADER_V1_SIZE];
     hw::flash_read(BOOTROM_OFFSET, &mut hdr_buf);
 
-    match validate_header(&hdr_buf, device_features(), PLATFORM_ESP32) {
+    match validate_header(&hdr_buf, device_features(), PLATFORM_ESP32, common::FLASHPOINT_CURRENT, common::FLASHPOINT_LAST_BREAKING) {
         Ok(_) => {
             let entry = flash_xip_addr(BOOTROM_OFFSET) + HEADER_V1_SIZE as u32;
             hw::publish_platform_ptr(core::ptr::null());
@@ -101,7 +101,7 @@ pub fn stage1_main() -> ! {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 fn try_boot_from_buffer(buf: &[u8]) -> Result<u32, HeaderError> {
-    let payload_offset = validate_header(buf, device_features(), PLATFORM_ESP32)?;
+    let payload_offset = validate_header(buf, device_features(), PLATFORM_ESP32, common::FLASHPOINT_CURRENT, common::FLASHPOINT_LAST_BREAKING)?;
     Ok(sd_load_addr() + payload_offset as u32)
 }
 
@@ -135,13 +135,13 @@ mod tests {
 
     #[test]
     fn try_boot_accepts_valid_header() {
-        let hdr = build_header(PLATFORM_ESP32, [0, 1, 0], 0, 0, 64, dummy_checksum());
+        let hdr = build_header(PLATFORM_ESP32, [0, 1, 0], common::FLASHPOINT_CURRENT, 0, 0, 64, dummy_checksum());
         assert!(try_boot_from_buffer(&hdr).is_ok());
     }
 
     #[test]
     fn try_boot_rejects_feature_mismatch() {
-        let hdr = build_header(PLATFORM_ESP32, [0, 1, 0], 0, FEAT_PSRAM, 64, dummy_checksum());
+        let hdr = build_header(PLATFORM_ESP32, [0, 1, 0], common::FLASHPOINT_CURRENT, 0, FEAT_PSRAM, 64, dummy_checksum());
         assert_eq!(try_boot_from_buffer(&hdr), Err(HeaderError::MissingFeatures));
     }
 }
