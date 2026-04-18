@@ -1,14 +1,15 @@
 [package]
-name = "flash-rom"
+name = "firmware"
 version.workspace = true
 edition.workspace = true
 
-# flash-rom runs on the ESP32 via esp-idf (std).
+# firmware runs on the ESP32 via esp-idf (std).
+# Contains: Stage 1 chainloader, all hardware drivers, Platform trait impl.
 # Target: xtensa-esp32-espidf (set in .cargo/config.toml for this crate)
 # Requires: Xtensa toolchain + esp-idf via espup
 
 [dependencies]
-flashpoint-common = { path = "../flashpoint-common", default-features = false }
+flashpoint-common = { path = "../common", default-features = false }
 
 # TODO (step 0.5): uncomment when ESP32 toolchain is confirmed installed
 # esp-idf-sys  = { version = "0.34", features = ["binstart"] }

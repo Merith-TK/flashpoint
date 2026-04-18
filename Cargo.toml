@@ -1,16 +1,16 @@
 [workspace]
 members = [
-    "flashpoint-common",
+    "common",
     "tools",
     "xtask",
     "stage1",
-    "boot-rom",
-    "flash-rom",
+    "kernel",
+    "firmware",
     "emulator",
 ]
-# emulator targets xtensa-esp32-espidf — exclude from default host builds
+# embedded crates target xtensa-esp32-espidf — exclude from default host builds
 default-members = [
-    "flashpoint-common",
+    "common",
     "tools",
     "xtask",
 ]
