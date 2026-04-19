@@ -10,10 +10,7 @@ edition.workspace = true
 
 [dependencies]
 common = { path = "../common", default-features = false }
+esp-idf-sys = { version = "0.37" }
 
-# The Platform trait is defined in common. kernel depends on it at link
-# time via the vtable pointer published at PLATFORM_PTR_ADDR — not as a Cargo dep.
-# This keeps kernel free of any hardware crate dependency.
-
-# TODO (step 0.5): uncomment when ESP32 toolchain is confirmed installed
-# esp-idf-sys = { version = "0.34", features = ["binstart"] }
+[build-dependencies]
+embuild = "0.33"

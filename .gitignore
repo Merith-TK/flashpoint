@@ -6,3 +6,6 @@ emulator/flash.bin
 .idea/
 .vscode/
 *.iml
+HANDOFF.md
+emulator/
+flashpoint.rom

@@ -220,7 +220,8 @@ fn cmd_build_boot(
 
     println!("==> compiling kernel for {target}");
     run(esp_cmd("cargo")
-        .args(["build", "-p", "kernel", "--target", target, "--release"]))?;
+        .args(["build", "--target", target, "--release"])
+        .current_dir(workspace_root().join("kernel")))?;
 
     let bin = workspace_root()
         .join("target").join(target).join("release").join("kernel");
@@ -287,14 +288,19 @@ fn cmd_emu_build(output: &Path) -> Result<(), String> {
     println!("==> compiling firmware (board-qemu, FLASHPOINT_ROM={})", rom.display());
     run(esp_cmd("cargo")
         .args(["build", "-p", "firmware",
+               "--target", "xtensa-esp32-espidf",
                "--no-default-features", "--features", "board-qemu",
                "--release"])
+        .current_dir(workspace_root().join("firmware"))
         .env("FLASHPOINT_ROM", rom.to_str().unwrap()))?;
 
     let bin = workspace_root()
         .join("target/xtensa-esp32-espidf/release/firmware");
 
     // Step 3: merge into a single flash image for QEMU
+    if let Some(parent) = output.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
     println!("==> creating merged flash image → {}", output.display());
     run(Command::new("espflash")
         .args(["save-image", "--chip", "esp32", "--merge",

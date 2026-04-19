@@ -1,5 +1,7 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
+use sha2::{Digest, Sha256};
+
 #[cfg(feature = "std")]
 use std::vec::Vec;
 #[cfg(not(feature = "std"))]
@@ -228,6 +230,22 @@ pub fn validate_header(
     Ok(hdr_size) // payload starts here; checksum verified separately with payload bytes
 }
 
+/// Verify that `payload` matches the SHA-256 checksum stored in `header`.
+///
+/// Must be called after `validate_header()` succeeds. `header` is the first
+/// `HEADER_V1_SIZE` bytes of the ROM; `payload` is everything after.
+pub fn verify_checksum(header: &[u8], payload: &[u8]) -> Result<(), HeaderError> {
+    if header.len() < HEADER_V1_SIZE {
+        return Err(HeaderError::TooShort);
+    }
+    let expected = &header[OFF_CHECKSUM..OFF_CHECKSUM + 32];
+    let computed = Sha256::digest(payload);
+    if computed.as_slice() != expected {
+        return Err(HeaderError::BadChecksum);
+    }
+    Ok(())
+}
+
 /// Build a v1 header block (exactly HEADER_V1_SIZE bytes).
 /// `checksum`: SHA-256 of the payload bytes (computed by caller).
 /// `built_against`: Flashpoint API version this ROM was compiled for.
@@ -440,6 +458,31 @@ mod tests {
     fn version_pack_unpack_round_trip() {
         let v = version_pack(1, 2, 3);
         assert_eq!(version_unpack(v), (1, 2, 3));
+    }
+
+    #[test]
+    fn verify_checksum_accepts_correct_payload() {
+        let payload = b"hello flashpoint";
+        let checksum: [u8; 32] = Sha256::digest(payload).into();
+        let h = build_header(PLATFORM_ESP32, [0, 1, 0], FLASHPOINT_CURRENT, 0, 0, payload.len() as u32, checksum);
+        assert!(verify_checksum(&h, payload).is_ok());
+    }
+
+    #[test]
+    fn verify_checksum_rejects_corrupted_payload() {
+        let payload = b"hello flashpoint";
+        let checksum: [u8; 32] = Sha256::digest(payload).into();
+        let h = build_header(PLATFORM_ESP32, [0, 1, 0], FLASHPOINT_CURRENT, 0, 0, payload.len() as u32, checksum);
+        let corrupted = b"hello flashpointX";
+        assert_eq!(verify_checksum(&h, corrupted), Err(HeaderError::BadChecksum));
+    }
+
+    #[test]
+    fn verify_checksum_rejects_wrong_checksum_in_header() {
+        let payload = b"hello flashpoint";
+        let wrong_checksum = [0u8; 32];
+        let h = build_header(PLATFORM_ESP32, [0, 1, 0], FLASHPOINT_CURRENT, 0, 0, payload.len() as u32, wrong_checksum);
+        assert_eq!(verify_checksum(&h, payload), Err(HeaderError::BadChecksum));
     }
 
     #[test]

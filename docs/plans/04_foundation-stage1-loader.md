@@ -71,14 +71,15 @@ Header is at offset 0 of the `.rom` file. Read first 64 bytes (minimum), check `
 
 ```
 1. len >= 64                                              → reject otherwise (too short)
-2. magic == b"BROM\x00\x01"                              → reject otherwise
-3. spec_version == 1                                      → reject otherwise
-4. header_size >= 64 && header[header_size-1] == 0xFE    → reject otherwise (bad terminator)
-5. header_size == 64 (v1 loader rejects larger headers)  → reject with "unsupported version"
-6. platform == our chip_id                               → reject otherwise
+2. magic == b"FLPT"                                       → reject otherwise
+3. header_size >= 64 && header[header_size-1] == 0xFE    → reject otherwise (bad terminator)
+4. header_size == 64 (v1 loader rejects larger headers)  → reject with "unsupported version"
+5. platform == our chip_id                               → reject otherwise
+6. built_against >= FLASHPOINT_LAST_BREAKING &&
+   built_against <= FLASHPOINT_CURRENT                   → reject otherwise (API incompatible)
 7. (DEVICE_FEATURES & required_features) == required_features → reject otherwise (feature mismatch)
 8. payload_len > 0 && payload_len ≤ available_memory     → reject otherwise
-9. SHA-256(payload bytes) == checksum                    → reject otherwise
+9. SHA-256(payload[0..payload_len]) == checksum          → reject otherwise
 ```
 
 Check 7 is the feature gate — distinguishable error from a corrupt header. Check 4/5 handle forward-compatibility cleanly.

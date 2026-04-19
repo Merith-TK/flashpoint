@@ -8,3 +8,4 @@ default = ["std"]
 std = []
 
 [dependencies]
+sha2 = { version = "0.10", default-features = false, features = ["force-soft"] }
