@@ -36,6 +36,14 @@ enum Task {
         #[arg(long)]
         requires: Option<String>,
 
+        /// Payload type: native | wasm32 | luac54
+        #[arg(long)]
+        r#type: Option<String>,
+
+        /// ROM ID namespace e.g. com.flashpoint.shell (max 23 chars)
+        #[arg(long)]
+        id: Option<String>,
+
         /// Output path for flashpoint.rom
         #[arg(long, default_value = "flashpoint.rom")]
         output: PathBuf,
@@ -114,6 +122,12 @@ enum Task {
         built_against: Option<String>,
         #[arg(long)]
         requires: Option<String>,
+        /// Payload type: native | wasm32 | luac54
+        #[arg(long)]
+        r#type: Option<String>,
+        /// ROM ID namespace e.g. com.flashpoint.shell (max 23 chars)
+        #[arg(long)]
+        id: Option<String>,
         #[arg(long, default_value_t = false)]
         compress: bool,
         input: PathBuf,
@@ -132,8 +146,8 @@ fn main() {
     let cli = Cli::parse();
     let result = match cli.command {
         Task::Setup => cmd_setup(),
-        Task::BuildBoot { platform, version, built_against, requires, output } =>
-            cmd_build_boot(&platform, &version, built_against.as_deref(), requires.as_deref(), &output),
+        Task::BuildBoot { platform, version, built_against, requires, r#type, id, output } =>
+            cmd_build_boot(&platform, &version, built_against.as_deref(), requires.as_deref(), r#type.as_deref(), id.as_deref(), &output),
         Task::BuildFlash { board, embed_boot, bootrom } =>
             cmd_build_flash(&board, embed_boot, bootrom.as_deref()),
         Task::BuildImage { board, output } =>
@@ -146,8 +160,8 @@ fn main() {
             cmd_flash(&port, &board, embed_boot),
         Task::Monitor { port } =>
             cmd_monitor(&port),
-        Task::Pack { platform, version, built_against, requires, compress, input, output } =>
-            rom::do_pack(&platform, &version, built_against.as_deref(), requires.as_deref(), compress, &input, &output),
+        Task::Pack { platform, version, built_against, requires, r#type, id, compress, input, output } =>
+            rom::do_pack(&platform, &version, built_against.as_deref(), requires.as_deref(), r#type.as_deref(), id.as_deref(), compress, &input, &output),
         Task::Verify { input } =>
             rom::do_verify(&input),
     };
@@ -223,6 +237,8 @@ fn cmd_build_boot(
     version: &str,
     built_against: Option<&str>,
     requires: Option<&str>,
+    payload_type: Option<&str>,
+    rom_id: Option<&str>,
     output: &Path,
 ) -> Result<(), String> {
     let target = platform_to_target(platform)?;
@@ -236,7 +252,7 @@ fn cmd_build_boot(
         .join("target").join(target).join("release").join("kernel");
 
     println!("==> packaging {} → {}", bin.display(), output.display());
-    rom::do_pack(platform, version, built_against, requires, false, &bin, output)
+    rom::do_pack(platform, version, built_against, requires, payload_type, rom_id, false, &bin, output)
 }
 
 // ─── build-flash ─────────────────────────────────────────────────────────────
@@ -257,7 +273,7 @@ fn cmd_build_flash(
             Some(p) => p.to_path_buf(),
             None => {
                 let out = PathBuf::from("flashpoint.rom");
-                cmd_build_boot(board_to_platform(board), "0.1.0", None, None, &out)?;
+                cmd_build_boot(board_to_platform(board), "0.1.0", None, None, None, None, &out)?;
                 out
             }
         };
@@ -292,7 +308,7 @@ fn cmd_build_image(board: &str, output: &Path) -> Result<(), String> {
 fn cmd_emu_build(output: &Path) -> Result<(), String> {
     // Step 1: build kernel → flashpoint.rom (embedded into the firmware binary)
     let rom = workspace_root().join("flashpoint.rom");
-    cmd_build_boot("esp32", "0.1.0", None, None, &rom)?;
+    cmd_build_boot("esp32", "0.1.0", None, None, None, None, &rom)?;
 
     // Step 2: compile firmware with board-qemu feature + ROM embedded
     println!("==> compiling firmware (board-qemu, FLASHPOINT_ROM={})", rom.display());

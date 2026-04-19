@@ -76,7 +76,7 @@ fn qemu_boot() -> ! {
     let payload_len = u32::from_le_bytes(
         EMBEDDED_ROM[OFF_PAYLOAD_LEN..OFF_PAYLOAD_LEN + 4].try_into().unwrap()
     ) as usize;
-    if let Err(e) = verify_checksum(
+    if let Err(e) = verify_crc32(
         &EMBEDDED_ROM[..payload_offset],
         &EMBEDDED_ROM[payload_offset..payload_offset + payload_len],
     ) {
@@ -196,9 +196,7 @@ fn sd_load_addr()               -> u32 { 0x3FFB_8000 }
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::build_header;
-
-    fn dummy_checksum() -> [u8; 32] { [0; 32] }
+    use common::{build_header, PayloadType};
 
     #[test]
     fn layout_constants_parse() {
@@ -215,13 +213,13 @@ mod tests {
 
     #[test]
     fn try_boot_accepts_valid_header() {
-        let hdr = build_header(PLATFORM_ESP32, [0, 1, 0], FLASHPOINT_CURRENT, 0, 0, 64, dummy_checksum());
+        let hdr = build_header(PLATFORM_ESP32, [0, 2, 0], FLASHPOINT_CURRENT, 0, 0, 64, PayloadType::Native, "", [0, 0, 0], 0);
         assert!(try_boot_from_buffer(&hdr).is_ok());
     }
 
     #[test]
     fn try_boot_rejects_feature_mismatch() {
-        let hdr = build_header(PLATFORM_ESP32, [0, 1, 0], FLASHPOINT_CURRENT, 0, FEAT_PSRAM, 64, dummy_checksum());
+        let hdr = build_header(PLATFORM_ESP32, [0, 2, 0], FLASHPOINT_CURRENT, 0, FEAT_PSRAM, 64, PayloadType::Native, "", [0, 0, 0], 0);
         assert_eq!(try_boot_from_buffer(&hdr), Err(HeaderError::MissingFeatures));
     }
 }

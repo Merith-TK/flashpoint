@@ -1,11 +1,15 @@
+# Build artifacts
 target/
 .embuild/
+flash.bin
 *.rom
-emulator/flash.bin
+emulator/
+
+# IDE / editor
 .DS_Store
 .idea/
 .vscode/
 *.iml
+
+# Project-specific
 HANDOFF.md
-emulator/
-flashpoint.rom

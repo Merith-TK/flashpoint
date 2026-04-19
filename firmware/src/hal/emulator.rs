@@ -66,4 +66,7 @@ impl Platform for EmulatorPlatform {
     fn nvs_delete(&self, _: &str, _: &str) -> Result<(), PlatformError> {
         Err(PlatformError::NvsError)
     }
+
+    fn wasm_arena_limit(&self) -> usize { 256 * 1024 }
+    fn lua_heap_limit(&self)   -> usize { 64 * 1024 }
 }

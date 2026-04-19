@@ -80,4 +80,7 @@ impl Platform for CydPlatform {
     fn flashpoint_version(&self) -> (u32, u32) {
         (FLASHPOINT_CURRENT, FLASHPOINT_LAST_BREAKING)
     }
+
+    fn wasm_arena_limit(&self) -> usize { 256 * 1024 }
+    fn lua_heap_limit(&self)   -> usize { 64 * 1024 }
 }
