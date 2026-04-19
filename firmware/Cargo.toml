@@ -10,7 +10,7 @@ edition.workspace = true
 
 [features]
 default = ["board-cyd"]
-board-cyd  = []
+board-cyd  = ["dep:esp-idf-svc", "dep:log", "common/std"]
 board-qemu = ["dep:esp-idf-svc", "dep:log", "common/std"]
 
 [dependencies]

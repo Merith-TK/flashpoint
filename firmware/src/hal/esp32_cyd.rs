@@ -10,6 +10,7 @@
 
 use super::{FrameBuffer, Platform, PlatformError};
 use common::{ChipId, Event, FLASHPOINT_CURRENT, FLASHPOINT_LAST_BREAKING};
+use std::vec::Vec;
 
 pub struct CydPlatform {
     // TODO (step 0.5): hold SPI bus handles, display driver, touch driver, SD handle, NVS
@@ -35,7 +36,7 @@ impl Platform for CydPlatform {
         todo!("step 0.5: SD capacity query")
     }
 
-    fn nvs_read(&self, _ns: &str, _key: &str) -> Result<alloc::vec::Vec<u8>, PlatformError> {
+    fn nvs_read(&self, _ns: &str, _key: &str) -> Result<Vec<u8>, PlatformError> {
         todo!("step 0.5: esp-idf-sys nvs_get_blob")
     }
 
@@ -80,5 +81,3 @@ impl Platform for CydPlatform {
         (FLASHPOINT_CURRENT, FLASHPOINT_LAST_BREAKING)
     }
 }
-
-extern crate alloc;

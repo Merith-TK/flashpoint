@@ -96,6 +96,13 @@ enum Task {
         embed_boot: bool,
     },
 
+    /// Open a serial monitor to watch device output (Ctrl+] to exit)
+    Monitor {
+        /// Serial port e.g. /dev/ttyUSB0
+        #[arg(long, default_value = "/dev/ttyUSB0")]
+        port: String,
+    },
+
     /// Wrap a raw binary with a Flashpoint ROM header → flashpoint.rom
     Pack {
         #[arg(long)]
@@ -137,6 +144,8 @@ fn main() {
             cmd_emu_run(&qemu_args),
         Task::Flash { port, board, embed_boot } =>
             cmd_flash(&port, &board, embed_boot),
+        Task::Monitor { port } =>
+            cmd_monitor(&port),
         Task::Pack { platform, version, built_against, requires, compress, input, output } =>
             rom::do_pack(&platform, &version, built_against.as_deref(), requires.as_deref(), compress, &input, &output),
         Task::Verify { input } =>
@@ -240,7 +249,8 @@ fn cmd_build_flash(
     let target = board_to_target(board)?;
 
     let mut cmd = esp_cmd("cargo");
-    cmd.args(["build", "-p", "firmware", "--target", target, "--release"]);
+    cmd.args(["build", "-p", "firmware", "--target", target, "--release"])
+       .current_dir(workspace_root().join("firmware"));
 
     if embed_boot {
         let rom = match bootrom_path {
@@ -330,24 +340,22 @@ fn cmd_emu_run(extra: &[String]) -> Result<(), String> {
 
 // ─── flash ───────────────────────────────────────────────────────────────────
 
+fn cmd_monitor(port: &str) -> Result<(), String> {
+    println!("==> serial monitor on {port}  (Ctrl+] to exit)");
+    run(Command::new("espflash")
+        .args(["monitor", "--port", port]))
+}
+
 fn cmd_flash(port: &str, board: &str, embed_boot: bool) -> Result<(), String> {
-    let img = PathBuf::from("flash.bin");
     let target = board_to_target(board)?;
     cmd_build_flash(board, embed_boot, None)?;
 
     let bin = workspace_root()
         .join("target").join(target).join("release").join("firmware");
 
-    println!("==> creating merged flash image → {}", img.display());
+    println!("==> flashing {} to {port}", bin.display());
     run(Command::new("espflash")
-        .args(["save-image", "--chip", board_to_chip(board), "--merge",
-            bin.to_str().unwrap(),
-            img.to_str().unwrap(),
-        ]))?;
-
-    println!("==> flashing to {port}");
-    run(Command::new("espflash")
-        .args(["flash", "--port", port, img.to_str().unwrap()]))
+        .args(["flash", "--port", port, bin.to_str().unwrap()]))
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────

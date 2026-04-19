@@ -42,10 +42,13 @@ pub fn stage1_main() -> ! {
     #[cfg(feature = "board-cyd")]
     { cyd_boot() }
 
-    // Compile error if neither board feature is active — intentional.
-    // One of the blocks above always diverges (-> !) when a valid feature is set.
-    #[cfg(not(any(feature = "board-qemu", feature = "board-cyd")))]
+    // Compile error if neither board feature is active (non-test builds only).
+    #[cfg(all(not(test), not(any(feature = "board-qemu", feature = "board-cyd"))))]
     core::compile_error!("firmware requires --features board-cyd or --features board-qemu");
+
+    // Satisfies the `-> !` return type in test builds with no board feature.
+    #[allow(unreachable_code)]
+    loop {}
 }
 
 // ── QEMU boot path ────────────────────────────────────────────────────────────
@@ -98,35 +101,61 @@ fn qemu_boot() -> ! {
 
 #[cfg(feature = "board-cyd")]
 fn cyd_boot() -> ! {
+    log::info!("[stage1] CYD boot — checking SD card");
+
     if hw::sd_init() {
+        log::info!("[stage1] SD card ready — loading flashpoint.rom");
+        // NOTE (Plan 05): sd_read_rom must DMA the full ROM into DRAM at
+        // sd_load_addr() before returning. The buf here is a scratch space
+        // for header validation only; the actual jump target is sd_load_addr().
         let mut buf = [0u8; HEADER_V1_SIZE + 512];
         if hw::sd_read_rom(&mut buf).is_some() {
             match try_boot_from_buffer(&buf) {
                 Ok(entry) => {
+                    log::info!("[stage1] SD ROM valid — jumping to 0x{:08X}", entry);
                     hw::publish_platform_ptr(core::ptr::null());
                     hw::jump_to(entry);
                 }
-                Err(e) => { let _ = e; }
+                Err(e) => {
+                    log::warn!("[stage1] SD ROM rejected ({:?}) — trying internal flash", e);
+                }
             }
+        } else {
+            log::warn!("[stage1] SD read failed — trying internal flash");
         }
+    } else {
+        log::info!("[stage1] no SD card — checking internal flash");
     }
 
     if BOOTROM_SIZE == 0 {
+        log::error!("[stage1] no internal boot ROM — halting");
         hw::error_led(hw::ErrorCode::NoBoot);
     }
 
+    log::info!("[stage1] reading internal ROM at offset=0x{:08X} size=0x{:08X}",
+        BOOTROM_OFFSET, BOOTROM_SIZE);
     let mut hdr_buf = [0u8; HEADER_V1_SIZE];
     hw::flash_read(BOOTROM_OFFSET, &mut hdr_buf);
 
     match validate_header(&hdr_buf, crate::DEVICE_FEATURES, PLATFORM_ESP32, FLASHPOINT_CURRENT, FLASHPOINT_LAST_BREAKING) {
         Ok(_) => {
             let entry = flash_xip_addr(BOOTROM_OFFSET) + HEADER_V1_SIZE as u32;
+            log::info!("[stage1] internal ROM valid — jumping to 0x{:08X}", entry);
             hw::publish_platform_ptr(core::ptr::null());
             hw::jump_to(entry);
         }
-        Err(HeaderError::MissingFeatures) => hw::error_led(hw::ErrorCode::FeatureMismatch),
-        Err(HeaderError::BadChecksum)     => hw::error_led(hw::ErrorCode::BadChecksum),
-        Err(_)                            => hw::error_led(hw::ErrorCode::BadMagic),
+        Err(HeaderError::MissingFeatures) => {
+            log::error!("[stage1] ROM requires features this device lacks — halting");
+            hw::error_led(hw::ErrorCode::FeatureMismatch)
+        }
+        Err(HeaderError::BadChecksum) => {
+            log::error!("[stage1] ROM checksum mismatch — halting");
+            hw::error_led(hw::ErrorCode::BadChecksum)
+        }
+        Err(e) => {
+            log::error!("[stage1] ROM header invalid ({:?}) — halting", e);
+            hw::error_led(hw::ErrorCode::BadMagic)
+        }
     }
 }
 
@@ -140,7 +169,13 @@ mod hw {
     pub fn flash_read(offset: u32, buf: &mut [u8]) { let _ = (offset, buf); }
     pub fn jump_to(addr: u32) -> ! { let _ = addr; loop {} }
     pub fn publish_platform_ptr(_ptr: *const ()) {}
-    pub fn error_led(code: ErrorCode) -> ! { let _ = code; loop {} }
+
+    pub fn error_led(code: ErrorCode) -> ! {
+        let _ = code;
+        // Yield to FreeRTOS to keep IDLE tasks alive (avoids WDT spam).
+        // Plan 05 will replace this with RGB LED blink + display error.
+        loop { esp_idf_svc::hal::delay::FreeRtos::delay_ms(1000); }
+    }
 
     #[derive(Clone, Copy)]
     pub enum ErrorCode { NoBoot, BadMagic, FeatureMismatch, BadChecksum }

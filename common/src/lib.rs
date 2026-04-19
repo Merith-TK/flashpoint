@@ -156,7 +156,12 @@ pub enum Event {
 
 /// Fixed DRAM address where Stage 1 writes the Platform fat-pointer before
 /// jumping to the boot-rom. Both crates must agree on this value.
-/// Confirmed safe against ESP32 DRAM map: 0x3FFB_0000–0x3FFB_0007 (8 bytes).
+///
+/// UNRESOLVED (Plan 06): 0x3FFB_0000 is the start of ESP32 SRAM2 and falls
+/// within FreeRTOS static allocations (TCBs, queues). Writing here crashes
+/// an xQueueSemaphoreTake assertion at boot. A safe address must be found
+/// above the FreeRTOS heap (starts at ~0x3FFB_30D0) before enabling the
+/// real-hardware jump path. QEMU path intentionally skips this write.
 pub const PLATFORM_PTR_ADDR: usize = 0x3FFB_0000;
 
 // ─── Header validation ───────────────────────────────────────────────────────

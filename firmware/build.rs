@@ -1,6 +1,6 @@
 fn main() {
-    // board-qemu uses embuild to configure ESP-IDF at compile time
-    #[cfg(feature = "board-qemu")]
+    // both board targets use esp-idf-svc; embuild wires up the linker args
+    #[cfg(any(feature = "board-cyd", feature = "board-qemu"))]
     embuild::espidf::sysenv::output();
 
     // ── Flash layout constants (board-cyd: Stage 1 needs these) ──────────────
