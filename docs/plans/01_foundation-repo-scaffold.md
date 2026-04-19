@@ -56,7 +56,7 @@ flashpoint/
 │     └── src/
 │           └── main.rs      ← placeholder; commands: build-flash, build-rom, flash
 └── spec/
-      └── flashpoint-spec-v0.1.md  ← symlink or copy of designdoc
+      └── flashpoint-spec-v0.2.md  ← symlink or copy of designdoc
 ```
 
 ## Implementation Steps
