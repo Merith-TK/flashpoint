@@ -37,10 +37,14 @@ static EMBEDDED_ROM: &[u8] = include_bytes!(env!("FLASHPOINT_ROM_PATH"));
 
 pub fn stage1_main() -> ! {
     #[cfg(feature = "board-qemu")]
-    { qemu_boot() }
+    {
+        qemu_boot()
+    }
 
     #[cfg(feature = "board-cyd")]
-    { cyd_boot() }
+    {
+        cyd_boot()
+    }
 
     // Compile error if neither board feature is active (non-test builds only).
     #[cfg(all(not(test), not(any(feature = "board-qemu", feature = "board-cyd"))))]
@@ -74,7 +78,9 @@ fn qemu_boot() -> ! {
     };
 
     let payload_len = u32::from_le_bytes(
-        EMBEDDED_ROM[OFF_PAYLOAD_LEN..OFF_PAYLOAD_LEN + 4].try_into().unwrap()
+        EMBEDDED_ROM[OFF_PAYLOAD_LEN..OFF_PAYLOAD_LEN + 4]
+            .try_into()
+            .unwrap(),
     ) as usize;
     if let Err(e) = verify_crc32(
         &EMBEDDED_ROM[..payload_offset],
@@ -117,7 +123,7 @@ fn cyd_boot() -> ! {
             pull_down_en: idf::gpio_pulldown_t_GPIO_PULLDOWN_DISABLE,
             intr_type: idf::gpio_int_type_t_GPIO_INTR_DISABLE,
         });
-        idf::gpio_get_level(0) == 0  // active low
+        idf::gpio_get_level(0) == 0 // active low
     };
 
     let peripherals = Peripherals::take().expect("Peripherals already taken");
@@ -161,12 +167,21 @@ fn cyd_boot() -> ! {
         common::recovery_main(&platform);
     }
 
-    log::info!("[stage1] reading internal ROM at offset=0x{:08X} size=0x{:08X}",
-        BOOTROM_OFFSET, BOOTROM_SIZE);
+    log::info!(
+        "[stage1] reading internal ROM at offset=0x{:08X} size=0x{:08X}",
+        BOOTROM_OFFSET,
+        BOOTROM_SIZE
+    );
     let mut hdr_buf = [0u8; HEADER_V1_SIZE];
     hw::flash_read(BOOTROM_OFFSET, &mut hdr_buf);
 
-    match validate_header(&hdr_buf, crate::DEVICE_FEATURES, PLATFORM_ESP32, FLASHPOINT_CURRENT, FLASHPOINT_LAST_BREAKING) {
+    match validate_header(
+        &hdr_buf,
+        crate::DEVICE_FEATURES,
+        PLATFORM_ESP32,
+        FLASHPOINT_CURRENT,
+        FLASHPOINT_LAST_BREAKING,
+    ) {
         Ok(_) => {
             let entry = flash_xip_addr(BOOTROM_OFFSET) + HEADER_V1_SIZE as u32;
             log::info!("[stage1] internal ROM valid — jumping to 0x{:08X}", entry);
@@ -185,32 +200,59 @@ fn cyd_boot() -> ! {
 #[cfg(feature = "board-cyd")]
 #[allow(dead_code)]
 mod hw {
-    pub fn sd_init() -> bool { false }
-    pub fn sd_read_rom(buf: &mut [u8]) -> Option<usize> { let _ = buf; None }
-    pub fn flash_read(offset: u32, buf: &mut [u8]) { let _ = (offset, buf); }
-    pub fn jump_to(addr: u32) -> ! { let _ = addr; loop {} }
+    pub fn sd_init() -> bool {
+        false
+    }
+    pub fn sd_read_rom(buf: &mut [u8]) -> Option<usize> {
+        let _ = buf;
+        None
+    }
+    pub fn flash_read(offset: u32, buf: &mut [u8]) {
+        let _ = (offset, buf);
+    }
+    pub fn jump_to(addr: u32) -> ! {
+        let _ = addr;
+        loop {}
+    }
     pub fn publish_platform_ptr(_ptr: *const ()) {}
 
     pub fn error_led(code: ErrorCode) -> ! {
         let _ = code;
         // Yield to FreeRTOS to keep IDLE tasks alive (avoids WDT spam).
         // Plan 05 will replace this with RGB LED blink + display error.
-        loop { esp_idf_svc::hal::delay::FreeRtos::delay_ms(1000); }
+        loop {
+            esp_idf_svc::hal::delay::FreeRtos::delay_ms(1000);
+        }
     }
 
     #[derive(Clone, Copy)]
-    pub enum ErrorCode { NoBoot, BadMagic, FeatureMismatch, BadChecksum }
+    pub enum ErrorCode {
+        NoBoot,
+        BadMagic,
+        FeatureMismatch,
+        BadChecksum,
+    }
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 fn try_boot_from_buffer(buf: &[u8]) -> Result<u32, HeaderError> {
-    let offset = validate_header(buf, crate::DEVICE_FEATURES, PLATFORM_ESP32, FLASHPOINT_CURRENT, FLASHPOINT_LAST_BREAKING)?;
+    let offset = validate_header(
+        buf,
+        crate::DEVICE_FEATURES,
+        PLATFORM_ESP32,
+        FLASHPOINT_CURRENT,
+        FLASHPOINT_LAST_BREAKING,
+    )?;
     Ok(sd_load_addr() + offset as u32)
 }
 
-fn flash_xip_addr(offset: u32) -> u32 { 0x400C_0000 + offset }
-fn sd_load_addr()               -> u32 { 0x3FFB_8000 }
+fn flash_xip_addr(offset: u32) -> u32 {
+    0x400C_0000 + offset
+}
+fn sd_load_addr() -> u32 {
+    0x3FFB_8000
+}
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
@@ -234,13 +276,38 @@ mod tests {
 
     #[test]
     fn try_boot_accepts_valid_header() {
-        let hdr = build_header(PLATFORM_ESP32, [0, 2, 0], FLASHPOINT_CURRENT, 0, 0, 64, PayloadType::Native, "", [0, 0, 0], 0);
+        let hdr = build_header(
+            PLATFORM_ESP32,
+            [0, 2, 0],
+            FLASHPOINT_CURRENT,
+            0,
+            0,
+            64,
+            PayloadType::Native,
+            "",
+            [0, 0, 0],
+            0,
+        );
         assert!(try_boot_from_buffer(&hdr).is_ok());
     }
 
     #[test]
     fn try_boot_rejects_feature_mismatch() {
-        let hdr = build_header(PLATFORM_ESP32, [0, 2, 0], FLASHPOINT_CURRENT, 0, FEAT_PSRAM, 64, PayloadType::Native, "", [0, 0, 0], 0);
-        assert_eq!(try_boot_from_buffer(&hdr), Err(HeaderError::MissingFeatures));
+        let hdr = build_header(
+            PLATFORM_ESP32,
+            [0, 2, 0],
+            FLASHPOINT_CURRENT,
+            0,
+            FEAT_PSRAM,
+            64,
+            PayloadType::Native,
+            "",
+            [0, 0, 0],
+            0,
+        );
+        assert_eq!(
+            try_boot_from_buffer(&hdr),
+            Err(HeaderError::MissingFeatures)
+        );
     }
 }

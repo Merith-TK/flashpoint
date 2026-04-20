@@ -4,8 +4,8 @@ fn main() {
     embuild::espidf::sysenv::output();
 
     // ── Flash layout constants (board-cyd: Stage 1 needs these) ──────────────
-    const STAGE1_END: u32  = 0x10000; // 64 KB reserved for Stage 1
-    const FLASH_ALIGN: u32 = 0x1000;  // 4 KB sector alignment
+    const STAGE1_END: u32 = 0x10000; // 64 KB reserved for Stage 1
+    const FLASH_ALIGN: u32 = 0x1000; // 4 KB sector alignment
 
     println!("cargo:rerun-if-env-changed=BOOTROM_BIN");
 

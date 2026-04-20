@@ -20,9 +20,8 @@
 //   BOOT = IO0 (active LOW, internal pull-up)
 
 use common::{
-    ChipId, Event, FrameBuffer, Platform, PlatformError,
-    FEAT_BLE, FEAT_DISP_TFT, FEAT_INPUT_TOUCH, FEAT_WIFI,
-    FLASHPOINT_CURRENT, FLASHPOINT_LAST_BREAKING,
+    ChipId, Event, FrameBuffer, Platform, PlatformError, FEAT_BLE, FEAT_DISP_TFT, FEAT_INPUT_TOUCH,
+    FEAT_WIFI, FLASHPOINT_CURRENT, FLASHPOINT_LAST_BREAKING,
 };
 
 use esp_idf_svc::hal::{
@@ -34,13 +33,16 @@ use esp_idf_svc::hal::{
 use esp_idf_svc::sys as idf;
 
 use display_interface_spi::SPIInterface;
-use embedded_graphics_core::{draw_target::DrawTarget, pixelcolor::{raw::RawU16, Rgb565}};
+use embedded_graphics_core::{
+    draw_target::DrawTarget,
+    pixelcolor::{raw::RawU16, Rgb565},
+};
+use embedded_sdmmc::{BlockCount, BlockDevice, BlockIdx, SdCard};
 use mipidsi::{
     models::ILI9341Rgb565,
     options::{ColorOrder, Orientation},
     Builder,
 };
-use embedded_sdmmc::{BlockCount, BlockDevice, BlockIdx, SdCard};
 
 use std::ffi::CString;
 use std::sync::Mutex;
@@ -50,26 +52,26 @@ use std::vec::Vec;
 
 type LcdSpiDriver = SpiDriver<'static>;
 type LcdSpiDevice = SpiDeviceDriver<'static, LcdSpiDriver>;
-type LcdDcPin     = PinDriver<'static, Output>;
+type LcdDcPin = PinDriver<'static, Output>;
 type LcdInterface = SPIInterface<LcdSpiDevice, LcdDcPin>;
-type LcdDisplay   = mipidsi::Display<LcdInterface, ILI9341Rgb565, mipidsi::NoResetPin>;
+type LcdDisplay = mipidsi::Display<LcdInterface, ILI9341Rgb565, mipidsi::NoResetPin>;
 
 type SdSpiDriver = SpiDriver<'static>;
 type SdSpiDevice = SpiDeviceDriver<'static, SdSpiDriver>;
-type SdCsPin     = PinDriver<'static, Output>;
-type SdCardDev   = SdCard<SdSpiDevice, SdCsPin, FreeRtos>;
+type SdCsPin = PinDriver<'static, Output>;
+type SdCardDev = SdCard<SdSpiDevice, SdCsPin, FreeRtos>;
 
 type OutPin = PinDriver<'static, Output>;
-type InPin  = PinDriver<'static, Input>;
+type InPin = PinDriver<'static, Input>;
 
 // ─── Internal touch state ─────────────────────────────────────────────────────
 
 struct TouchBitbang {
-    clk:  OutPin,
+    clk: OutPin,
     mosi: OutPin,
     miso: InPin,
-    cs:   OutPin,
-    irq:  InPin,
+    cs: OutPin,
+    irq: InPin,
     last_event: Option<Event>,
     debounce_ms: u32,
 }
@@ -115,10 +117,10 @@ impl TouchBitbang {
     /// Calibration constants are conservative defaults; NVS calibration can refine them.
     fn map_to_event(raw_x: u16, raw_y: u16) -> Option<Event> {
         // Y-axis zones (raw_y low = top of screen)
-        const Y_UP_MAX:   u16 = 1000;
+        const Y_UP_MAX: u16 = 1000;
         const Y_DOWN_MIN: u16 = 3100;
         // X-axis zones for middle band
-        const X_LEFT_MAX:  u16 = 1200;
+        const X_LEFT_MAX: u16 = 1200;
         const X_RIGHT_MIN: u16 = 2800;
 
         if raw_y < Y_UP_MAX {
@@ -139,11 +141,15 @@ impl TouchBitbang {
 
 fn nvs_get(ns: &str, key: &str) -> Result<Vec<u8>, PlatformError> {
     unsafe {
-        let ns_c  = CString::new(ns).map_err(|_| PlatformError::NvsError)?;
+        let ns_c = CString::new(ns).map_err(|_| PlatformError::NvsError)?;
         let key_c = CString::new(key).map_err(|_| PlatformError::NvsError)?;
 
         let mut handle: idf::nvs_handle_t = 0;
-        idf::nvs_open(ns_c.as_ptr(), idf::nvs_open_mode_t_NVS_READONLY, &mut handle);
+        idf::nvs_open(
+            ns_c.as_ptr(),
+            idf::nvs_open_mode_t_NVS_READONLY,
+            &mut handle,
+        );
 
         let mut size: usize = 0;
         let rc = idf::nvs_get_blob(handle, key_c.as_ptr(), core::ptr::null_mut(), &mut size);
@@ -153,58 +159,91 @@ fn nvs_get(ns: &str, key: &str) -> Result<Vec<u8>, PlatformError> {
         }
 
         let mut buf = vec![0u8; size];
-        let rc = idf::nvs_get_blob(handle, key_c.as_ptr(), buf.as_mut_ptr() as *mut _, &mut size);
+        let rc = idf::nvs_get_blob(
+            handle,
+            key_c.as_ptr(),
+            buf.as_mut_ptr() as *mut _,
+            &mut size,
+        );
         idf::nvs_close(handle);
 
-        if rc == idf::ESP_OK { Ok(buf) } else { Err(PlatformError::NvsError) }
+        if rc == idf::ESP_OK {
+            Ok(buf)
+        } else {
+            Err(PlatformError::NvsError)
+        }
     }
 }
 
 fn nvs_set(ns: &str, key: &str, val: &[u8]) -> Result<(), PlatformError> {
     unsafe {
-        let ns_c  = CString::new(ns).map_err(|_| PlatformError::NvsError)?;
+        let ns_c = CString::new(ns).map_err(|_| PlatformError::NvsError)?;
         let key_c = CString::new(key).map_err(|_| PlatformError::NvsError)?;
 
         let mut handle: idf::nvs_handle_t = 0;
-        let rc = idf::nvs_open(ns_c.as_ptr(), idf::nvs_open_mode_t_NVS_READWRITE, &mut handle);
-        if rc != idf::ESP_OK { return Err(PlatformError::NvsError); }
+        let rc = idf::nvs_open(
+            ns_c.as_ptr(),
+            idf::nvs_open_mode_t_NVS_READWRITE,
+            &mut handle,
+        );
+        if rc != idf::ESP_OK {
+            return Err(PlatformError::NvsError);
+        }
 
         let rc = idf::nvs_set_blob(handle, key_c.as_ptr(), val.as_ptr() as *const _, val.len());
-        if rc == idf::ESP_OK { idf::nvs_commit(handle); }
+        if rc == idf::ESP_OK {
+            idf::nvs_commit(handle);
+        }
         idf::nvs_close(handle);
 
-        if rc == idf::ESP_OK { Ok(()) } else { Err(PlatformError::NvsError) }
+        if rc == idf::ESP_OK {
+            Ok(())
+        } else {
+            Err(PlatformError::NvsError)
+        }
     }
 }
 
 fn nvs_erase(ns: &str, key: &str) -> Result<(), PlatformError> {
     unsafe {
-        let ns_c  = CString::new(ns).map_err(|_| PlatformError::NvsError)?;
+        let ns_c = CString::new(ns).map_err(|_| PlatformError::NvsError)?;
         let key_c = CString::new(key).map_err(|_| PlatformError::NvsError)?;
 
         let mut handle: idf::nvs_handle_t = 0;
-        let rc = idf::nvs_open(ns_c.as_ptr(), idf::nvs_open_mode_t_NVS_READWRITE, &mut handle);
-        if rc != idf::ESP_OK { return Err(PlatformError::NvsError); }
+        let rc = idf::nvs_open(
+            ns_c.as_ptr(),
+            idf::nvs_open_mode_t_NVS_READWRITE,
+            &mut handle,
+        );
+        if rc != idf::ESP_OK {
+            return Err(PlatformError::NvsError);
+        }
 
         let rc = idf::nvs_erase_key(handle, key_c.as_ptr());
-        if rc == idf::ESP_OK { idf::nvs_commit(handle); }
+        if rc == idf::ESP_OK {
+            idf::nvs_commit(handle);
+        }
         idf::nvs_close(handle);
 
-        if rc == idf::ESP_OK { Ok(()) } else { Err(PlatformError::NvsError) }
+        if rc == idf::ESP_OK {
+            Ok(())
+        } else {
+            Err(PlatformError::NvsError)
+        }
     }
 }
 
 // ─── CydPlatform ─────────────────────────────────────────────────────────────
 
 pub struct CydPlatform {
-    display:              Mutex<LcdDisplay>,
+    display: Mutex<LcdDisplay>,
     #[allow(dead_code)] // must be held to keep backlight pin driven high
-    backlight:            Mutex<OutPin>,
-    touch:     Mutex<TouchBitbang>,
-    sd_card:   SdCardDev,     // SdCard uses RefCell internally; safe via &self
-    led_r:     Mutex<OutPin>,
-    led_g:     Mutex<OutPin>,
-    led_b:     Mutex<OutPin>,
+    backlight: Mutex<OutPin>,
+    touch: Mutex<TouchBitbang>,
+    sd_card: SdCardDev, // SdCard uses RefCell internally; safe via &self
+    led_r: Mutex<OutPin>,
+    led_g: Mutex<OutPin>,
+    led_b: Mutex<OutPin>,
 }
 
 // SAFETY: CydPlatform is used from a single FreeRTOS task in the boot-rom.
@@ -222,11 +261,12 @@ impl CydPlatform {
         // ── LCD (HSPI / SPI2) ─────────────────────────────────────────────────
         let lcd_driver = SpiDriver::new::<SPI2>(
             peripherals.spi2,
-            pins.gpio14,        // CLK
-            pins.gpio13,        // MOSI
-            Some(pins.gpio12),  // MISO
+            pins.gpio14,       // CLK
+            pins.gpio13,       // MOSI
+            Some(pins.gpio12), // MISO
             &SpiDriverConfig::new(),
-        ).expect("LCD SPI driver init failed");
+        )
+        .expect("LCD SPI driver init failed");
 
         // SAFETY: hardware peripheral lives for the program's lifetime;
         // extending the phantom lifetime to 'static is correct here.
@@ -236,20 +276,19 @@ impl CydPlatform {
             lcd_driver,
             Some(pins.gpio15.degrade_output()), // CS
             &SpiConfig::new().baudrate(40u32.MHz().into()),
-        ).expect("LCD SPI device init failed");
+        )
+        .expect("LCD SPI device init failed");
         let lcd_device: LcdSpiDevice = unsafe { core::mem::transmute(lcd_device) };
 
         let lcd_dc: LcdDcPin = unsafe {
             core::mem::transmute(
-                PinDriver::output(pins.gpio2.degrade_output())
-                    .expect("LCD DC pin init failed"),
+                PinDriver::output(pins.gpio2.degrade_output()).expect("LCD DC pin init failed"),
             )
         };
 
         let mut backlight: OutPin = unsafe {
             core::mem::transmute(
-                PinDriver::output(pins.gpio21.degrade_output())
-                    .expect("LCD BL pin init failed"),
+                PinDriver::output(pins.gpio21.degrade_output()).expect("LCD BL pin init failed"),
             )
         };
 
@@ -268,14 +307,12 @@ impl CydPlatform {
         // ── Touch (XPT2046 — bit-bang SPI) ────────────────────────────────────
         let touch_clk: OutPin = unsafe {
             core::mem::transmute(
-                PinDriver::output(pins.gpio25.degrade_output())
-                    .expect("touch CLK init failed"),
+                PinDriver::output(pins.gpio25.degrade_output()).expect("touch CLK init failed"),
             )
         };
         let touch_mosi: OutPin = unsafe {
             core::mem::transmute(
-                PinDriver::output(pins.gpio32.degrade_output())
-                    .expect("touch MOSI init failed"),
+                PinDriver::output(pins.gpio32.degrade_output()).expect("touch MOSI init failed"),
             )
         };
         let touch_miso: InPin = unsafe {
@@ -286,8 +323,7 @@ impl CydPlatform {
         };
         let touch_cs: OutPin = unsafe {
             core::mem::transmute(
-                PinDriver::output(pins.gpio33.degrade_output())
-                    .expect("touch CS init failed"),
+                PinDriver::output(pins.gpio33.degrade_output()).expect("touch CS init failed"),
             )
         };
         let touch_irq: InPin = unsafe {
@@ -298,11 +334,11 @@ impl CydPlatform {
         };
 
         let touch = TouchBitbang {
-            clk:  touch_clk,
+            clk: touch_clk,
             mosi: touch_mosi,
             miso: touch_miso,
-            cs:   touch_cs,
-            irq:  touch_irq,
+            cs: touch_cs,
+            irq: touch_irq,
             last_event: None,
             debounce_ms: 0,
         };
@@ -310,24 +346,25 @@ impl CydPlatform {
         // ── SD card (VSPI / SPI3) ──────────────────────────────────────────────
         let sd_driver = SpiDriver::new::<SPI3>(
             peripherals.spi3,
-            pins.gpio18,        // CLK
-            pins.gpio23,        // MOSI
-            Some(pins.gpio19),  // MISO
+            pins.gpio18,       // CLK
+            pins.gpio23,       // MOSI
+            Some(pins.gpio19), // MISO
             &SpiDriverConfig::new(),
-        ).expect("SD SPI driver init failed");
+        )
+        .expect("SD SPI driver init failed");
         let sd_driver: SdSpiDriver = unsafe { core::mem::transmute(sd_driver) };
 
         let sd_device = SpiDeviceDriver::new(
             sd_driver,
             None::<AnyOutputPin>, // CS managed by SdCard separately
             &SpiConfig::new().baudrate(400u32.kHz().into()), // start slow for card init
-        ).expect("SD SPI device init failed");
+        )
+        .expect("SD SPI device init failed");
         let sd_device: SdSpiDevice = unsafe { core::mem::transmute(sd_device) };
 
         let sd_cs: SdCsPin = unsafe {
             core::mem::transmute(
-                PinDriver::output(pins.gpio5.degrade_output())
-                    .expect("SD CS pin init failed"),
+                PinDriver::output(pins.gpio5.degrade_output()).expect("SD CS pin init failed"),
             )
         };
 
@@ -336,20 +373,17 @@ impl CydPlatform {
         // ── RGB LED (active LOW) ───────────────────────────────────────────────
         let mut led_r: OutPin = unsafe {
             core::mem::transmute(
-                PinDriver::output(pins.gpio4.degrade_output())
-                    .expect("LED R init failed"),
+                PinDriver::output(pins.gpio4.degrade_output()).expect("LED R init failed"),
             )
         };
         let mut led_g: OutPin = unsafe {
             core::mem::transmute(
-                PinDriver::output(pins.gpio16.degrade_output())
-                    .expect("LED G init failed"),
+                PinDriver::output(pins.gpio16.degrade_output()).expect("LED G init failed"),
             )
         };
         let mut led_b: OutPin = unsafe {
             core::mem::transmute(
-                PinDriver::output(pins.gpio17.degrade_output())
-                    .expect("LED B init failed"),
+                PinDriver::output(pins.gpio17.degrade_output()).expect("LED B init failed"),
             )
         };
 
@@ -359,9 +393,9 @@ impl CydPlatform {
         led_b.set_high().ok();
 
         CydPlatform {
-            display:   Mutex::new(display),
+            display: Mutex::new(display),
             backlight: Mutex::new(backlight),
-            touch:     Mutex::new(touch),
+            touch: Mutex::new(touch),
             sd_card,
             led_r: Mutex::new(led_r),
             led_g: Mutex::new(led_g),
@@ -377,9 +411,10 @@ impl Platform for CydPlatform {
 
     fn display_flush(&self, buf: &FrameBuffer) -> Result<(), PlatformError> {
         let mut display = self.display.lock().unwrap();
-        let pixels = buf.data.chunks_exact(2).map(|c| {
-            Rgb565::from(RawU16::new(u16::from_le_bytes([c[0], c[1]])))
-        });
+        let pixels = buf
+            .data
+            .chunks_exact(2)
+            .map(|c| Rgb565::from(RawU16::new(u16::from_le_bytes([c[0], c[1]]))));
         display
             .set_pixels(0, buf.y, self.display_width() - 1, buf.y, pixels)
             .map_err(|_| PlatformError::DisplayError)
@@ -392,8 +427,12 @@ impl Platform for CydPlatform {
             .map_err(|_| PlatformError::DisplayError)
     }
 
-    fn display_width(&self)  -> u16 { 240 }
-    fn display_height(&self) -> u16 { 320 }
+    fn display_width(&self) -> u16 {
+        240
+    }
+    fn display_height(&self) -> u16 {
+        320
+    }
 
     // ── Input (XPT2046 via bit-bang SPI) ─────────────────────────────────────
 
@@ -423,12 +462,21 @@ impl Platform for CydPlatform {
 
     fn led_rgb(&self, r: u8, g: u8, b: u8) -> Result<(), PlatformError> {
         // Active low: value > 0 → pull pin LOW (on), 0 → HIGH (off)
-        self.led_r.lock().unwrap()
-            .set_level((r == 0).into()).map_err(|_| PlatformError::NotSupported)?;
-        self.led_g.lock().unwrap()
-            .set_level((g == 0).into()).map_err(|_| PlatformError::NotSupported)?;
-        self.led_b.lock().unwrap()
-            .set_level((b == 0).into()).map_err(|_| PlatformError::NotSupported)?;
+        self.led_r
+            .lock()
+            .unwrap()
+            .set_level((r == 0).into())
+            .map_err(|_| PlatformError::NotSupported)?;
+        self.led_g
+            .lock()
+            .unwrap()
+            .set_level((g == 0).into())
+            .map_err(|_| PlatformError::NotSupported)?;
+        self.led_b
+            .lock()
+            .unwrap()
+            .set_level((b == 0).into())
+            .map_err(|_| PlatformError::NotSupported)?;
         Ok(())
     }
 
@@ -478,9 +526,13 @@ impl Platform for CydPlatform {
 
     // ── System ────────────────────────────────────────────────────────────────
 
-    fn battery_percent(&self) -> u8 { 100 } // CYD has no battery
+    fn battery_percent(&self) -> u8 {
+        100
+    } // CYD has no battery
 
-    fn chip_id(&self) -> ChipId { ChipId::Esp32 }
+    fn chip_id(&self) -> ChipId {
+        ChipId::Esp32
+    }
 
     fn reboot(&self) -> ! {
         unsafe { idf::esp_restart() }
@@ -494,8 +546,12 @@ impl Platform for CydPlatform {
         (FLASHPOINT_CURRENT, FLASHPOINT_LAST_BREAKING)
     }
 
-    fn wasm_arena_limit(&self) -> usize { 256 * 1024 }
-    fn lua_heap_limit(&self)   -> usize { 64 * 1024 }
+    fn wasm_arena_limit(&self) -> usize {
+        256 * 1024
+    }
+    fn lua_heap_limit(&self) -> usize {
+        64 * 1024
+    }
 
     // ── Capabilities ──────────────────────────────────────────────────────────
 

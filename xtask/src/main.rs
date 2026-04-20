@@ -1,6 +1,6 @@
+use clap::{Parser, Subcommand};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus};
-use clap::{Parser, Subcommand};
 
 mod rom;
 
@@ -135,9 +135,7 @@ enum Task {
     },
 
     /// Parse and validate a flashpoint.rom file
-    Verify {
-        input: PathBuf,
-    },
+    Verify { input: PathBuf },
 }
 
 // ─── Main ────────────────────────────────────────────────────────────────────
@@ -146,24 +144,59 @@ fn main() {
     let cli = Cli::parse();
     let result = match cli.command {
         Task::Setup => cmd_setup(),
-        Task::BuildBoot { platform, version, built_against, requires, r#type, id, output } =>
-            cmd_build_boot(&platform, &version, built_against.as_deref(), requires.as_deref(), r#type.as_deref(), id.as_deref(), &output),
-        Task::BuildFlash { board, embed_boot, bootrom } =>
-            cmd_build_flash(&board, embed_boot, bootrom.as_deref()),
-        Task::BuildImage { board, output } =>
-            cmd_build_image(&board, &output),
-        Task::EmuBuild { output } =>
-            cmd_emu_build(&output),
-        Task::EmuRun { qemu_args } =>
-            cmd_emu_run(&qemu_args),
-        Task::Flash { port, board, embed_boot } =>
-            cmd_flash(&port, &board, embed_boot),
-        Task::Monitor { port } =>
-            cmd_monitor(&port),
-        Task::Pack { platform, version, built_against, requires, r#type, id, compress, input, output } =>
-            rom::do_pack(&platform, &version, built_against.as_deref(), requires.as_deref(), r#type.as_deref(), id.as_deref(), compress, &input, &output),
-        Task::Verify { input } =>
-            rom::do_verify(&input),
+        Task::BuildBoot {
+            platform,
+            version,
+            built_against,
+            requires,
+            r#type,
+            id,
+            output,
+        } => cmd_build_boot(
+            &platform,
+            &version,
+            built_against.as_deref(),
+            requires.as_deref(),
+            r#type.as_deref(),
+            id.as_deref(),
+            &output,
+        ),
+        Task::BuildFlash {
+            board,
+            embed_boot,
+            bootrom,
+        } => cmd_build_flash(&board, embed_boot, bootrom.as_deref()),
+        Task::BuildImage { board, output } => cmd_build_image(&board, &output),
+        Task::EmuBuild { output } => cmd_emu_build(&output),
+        Task::EmuRun { qemu_args } => cmd_emu_run(&qemu_args),
+        Task::Flash {
+            port,
+            board,
+            embed_boot,
+        } => cmd_flash(&port, &board, embed_boot),
+        Task::Monitor { port } => cmd_monitor(&port),
+        Task::Pack {
+            platform,
+            version,
+            built_against,
+            requires,
+            r#type,
+            id,
+            compress,
+            input,
+            output,
+        } => rom::do_pack(
+            &platform,
+            &version,
+            built_against.as_deref(),
+            requires.as_deref(),
+            r#type.as_deref(),
+            id.as_deref(),
+            compress,
+            &input,
+            &output,
+        ),
+        Task::Verify { input } => rom::do_verify(&input),
     };
     if let Err(e) = result {
         eprintln!("xtask error: {e}");
@@ -178,10 +211,13 @@ fn cmd_setup() -> Result<(), String> {
     let mut ok = true;
 
     let tools = [
-        ("cargo",              "Rust toolchain"),
-        ("espflash",           "cargo install espflash"),
-        ("ldproxy",            "cargo install ldproxy"),
-        ("qemu-esp-xtensa",    "https://github.com/espressif/qemu/releases"),
+        ("cargo", "Rust toolchain"),
+        ("espflash", "cargo install espflash"),
+        ("ldproxy", "cargo install ldproxy"),
+        (
+            "qemu-esp-xtensa",
+            "https://github.com/espressif/qemu/releases",
+        ),
     ];
 
     for (bin, hint) in &tools {
@@ -225,7 +261,9 @@ fn cmd_setup() -> Result<(), String> {
 }
 
 fn which(bin: &str) -> bool {
-    Command::new("which").arg(bin).output()
+    Command::new("which")
+        .arg(bin)
+        .output()
         .map(|o| o.status.success())
         .unwrap_or(false)
 }
@@ -249,10 +287,23 @@ fn cmd_build_boot(
         .current_dir(workspace_root().join("kernel")))?;
 
     let bin = workspace_root()
-        .join("target").join(target).join("release").join("kernel");
+        .join("target")
+        .join(target)
+        .join("release")
+        .join("kernel");
 
     println!("==> packaging {} → {}", bin.display(), output.display());
-    rom::do_pack(platform, version, built_against, requires, payload_type, rom_id, false, &bin, output)
+    rom::do_pack(
+        platform,
+        version,
+        built_against,
+        requires,
+        payload_type,
+        rom_id,
+        false,
+        &bin,
+        output,
+    )
 }
 
 // ─── build-flash ─────────────────────────────────────────────────────────────
@@ -266,18 +317,29 @@ fn cmd_build_flash(
 
     let mut cmd = esp_cmd("cargo");
     cmd.args(["build", "-p", "firmware", "--target", target, "--release"])
-       .current_dir(workspace_root().join("firmware"));
+        .current_dir(workspace_root().join("firmware"));
 
     if embed_boot {
         let rom = match bootrom_path {
             Some(p) => p.to_path_buf(),
             None => {
                 let out = PathBuf::from("flashpoint.rom");
-                cmd_build_boot(board_to_platform(board), "0.1.0", None, None, None, None, &out)?;
+                cmd_build_boot(
+                    board_to_platform(board),
+                    "0.1.0",
+                    None,
+                    None,
+                    None,
+                    None,
+                    &out,
+                )?;
                 out
             }
         };
-        println!("==> compiling firmware (embed-boot: {}) for {target}", rom.display());
+        println!(
+            "==> compiling firmware (embed-boot: {}) for {target}",
+            rom.display()
+        );
         cmd.env("BOOTROM_BIN", rom.to_str().unwrap());
     } else {
         println!("==> compiling firmware for {target}");
@@ -293,14 +355,20 @@ fn cmd_build_image(board: &str, output: &Path) -> Result<(), String> {
     cmd_build_flash(board, false, None)?;
 
     let bin = workspace_root()
-        .join("target").join(target).join("release").join("firmware");
+        .join("target")
+        .join(target)
+        .join("release")
+        .join("firmware");
 
     println!("==> creating merged flash image → {}", output.display());
-    run(Command::new("espflash")
-        .args(["save-image", "--chip", board_to_chip(board), "--merge",
-            bin.to_str().unwrap(),
-            output.to_str().unwrap(),
-        ]))
+    run(Command::new("espflash").args([
+        "save-image",
+        "--chip",
+        board_to_chip(board),
+        "--merge",
+        bin.to_str().unwrap(),
+        output.to_str().unwrap(),
+    ]))
 }
 
 // ─── emu-build ───────────────────────────────────────────────────────────────
@@ -311,28 +379,40 @@ fn cmd_emu_build(output: &Path) -> Result<(), String> {
     cmd_build_boot("esp32", "0.1.0", None, None, None, None, &rom)?;
 
     // Step 2: compile firmware with board-qemu feature + ROM embedded
-    println!("==> compiling firmware (board-qemu, FLASHPOINT_ROM={})", rom.display());
+    println!(
+        "==> compiling firmware (board-qemu, FLASHPOINT_ROM={})",
+        rom.display()
+    );
     run(esp_cmd("cargo")
-        .args(["build", "-p", "firmware",
-               "--target", "xtensa-esp32-espidf",
-               "--no-default-features", "--features", "board-qemu",
-               "--release"])
+        .args([
+            "build",
+            "-p",
+            "firmware",
+            "--target",
+            "xtensa-esp32-espidf",
+            "--no-default-features",
+            "--features",
+            "board-qemu",
+            "--release",
+        ])
         .current_dir(workspace_root().join("firmware"))
         .env("FLASHPOINT_ROM", rom.to_str().unwrap()))?;
 
-    let bin = workspace_root()
-        .join("target/xtensa-esp32-espidf/release/firmware");
+    let bin = workspace_root().join("target/xtensa-esp32-espidf/release/firmware");
 
     // Step 3: merge into a single flash image for QEMU
     if let Some(parent) = output.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
     println!("==> creating merged flash image → {}", output.display());
-    run(Command::new("espflash")
-        .args(["save-image", "--chip", "esp32", "--merge",
-            bin.to_str().unwrap(),
-            output.to_str().unwrap(),
-        ]))
+    run(Command::new("espflash").args([
+        "save-image",
+        "--chip",
+        "esp32",
+        "--merge",
+        bin.to_str().unwrap(),
+        output.to_str().unwrap(),
+    ]))
 }
 
 // ─── emu-run ─────────────────────────────────────────────────────────────────
@@ -345,8 +425,10 @@ fn cmd_emu_run(extra: &[String]) -> Result<(), String> {
     let mut cmd = Command::new("qemu-esp-xtensa");
     cmd.args([
         "-nographic",
-        "-machine", "esp32",
-        "-drive", &format!("if=mtd,format=raw,file={}", flash_img.display()),
+        "-machine",
+        "esp32",
+        "-drive",
+        &format!("if=mtd,format=raw,file={}", flash_img.display()),
     ]);
     for arg in extra {
         cmd.arg(arg);
@@ -358,8 +440,7 @@ fn cmd_emu_run(extra: &[String]) -> Result<(), String> {
 
 fn cmd_monitor(port: &str) -> Result<(), String> {
     println!("==> serial monitor on {port}  (Ctrl+] to exit)");
-    run(Command::new("espflash")
-        .args(["monitor", "--port", port]))
+    run(Command::new("espflash").args(["monitor", "--port", port]))
 }
 
 fn cmd_flash(port: &str, board: &str, embed_boot: bool) -> Result<(), String> {
@@ -367,11 +448,13 @@ fn cmd_flash(port: &str, board: &str, embed_boot: bool) -> Result<(), String> {
     cmd_build_flash(board, embed_boot, None)?;
 
     let bin = workspace_root()
-        .join("target").join(target).join("release").join("firmware");
+        .join("target")
+        .join(target)
+        .join("release")
+        .join("firmware");
 
     println!("==> flashing {} to {port}", bin.display());
-    run(Command::new("espflash")
-        .args(["flash", "--port", port, bin.to_str().unwrap()]))
+    run(Command::new("espflash").args(["flash", "--port", port, bin.to_str().unwrap()]))
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -405,59 +488,64 @@ fn esp_cmd(program: &str) -> Command {
 }
 
 fn workspace_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_path_buf()
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .to_path_buf()
 }
 
 fn platform_to_target(platform: &str) -> Result<&'static str, String> {
     match platform.to_lowercase().as_str() {
-        "esp32"               => Ok("xtensa-esp32-espidf"),
+        "esp32" => Ok("xtensa-esp32-espidf"),
         "esp32-s3" | "esp32s3" => Ok("xtensa-esp32s3-espidf"),
-        "rp2040"              => Ok("thumbv6m-none-eabi"),
-        other => Err(format!("unknown platform '{other}': use esp32 | esp32-s3 | rp2040")),
+        "rp2040" => Ok("thumbv6m-none-eabi"),
+        other => Err(format!(
+            "unknown platform '{other}': use esp32 | esp32-s3 | rp2040"
+        )),
     }
 }
 
 fn board_to_target(board: &str) -> Result<&'static str, String> {
     match board {
-        "esp32-cyd"       => Ok("xtensa-esp32-espidf"),
-        "esp32s3-xteink"  => Ok("xtensa-esp32s3-espidf"),
-        other => Err(format!("unknown board '{other}': use esp32-cyd | esp32s3-xteink")),
+        "esp32-cyd" => Ok("xtensa-esp32-espidf"),
+        "esp32s3-xteink" => Ok("xtensa-esp32s3-espidf"),
+        other => Err(format!(
+            "unknown board '{other}': use esp32-cyd | esp32s3-xteink"
+        )),
     }
 }
 
 fn board_to_platform(board: &str) -> &'static str {
     match board {
         "esp32s3-xteink" => "esp32-s3",
-        _                => "esp32",
+        _ => "esp32",
     }
 }
 
 fn board_to_chip(board: &str) -> &'static str {
     match board {
         "esp32s3-xteink" => "esp32s3",
-        _                => "esp32",
+        _ => "esp32",
     }
 }
 
 /// Detect LIBCLANG_PATH from espup's toolchain install under ~/.rustup/toolchains/esp/
 fn detect_libclang() -> Option<String> {
     let home = std::env::var("HOME").ok()?;
-    let base = PathBuf::from(home)
-        .join(".rustup/toolchains/esp/xtensa-esp32-elf-clang");
-    first_child_subpath(&base, "esp-clang/lib")
-        .map(|p| p.to_string_lossy().into_owned())
+    let base = PathBuf::from(home).join(".rustup/toolchains/esp/xtensa-esp32-elf-clang");
+    first_child_subpath(&base, "esp-clang/lib").map(|p| p.to_string_lossy().into_owned())
 }
 
 /// Detect the Xtensa GCC bin dir from espup's toolchain install.
 fn detect_gcc_bin() -> Option<PathBuf> {
     let home = std::env::var("HOME").ok()?;
-    let base = PathBuf::from(home)
-        .join(".rustup/toolchains/esp/xtensa-esp-elf");
+    let base = PathBuf::from(home).join(".rustup/toolchains/esp/xtensa-esp-elf");
     first_child_subpath(&base, "xtensa-esp-elf/bin")
 }
 
 fn first_child_subpath(parent: &Path, suffix: &str) -> Option<PathBuf> {
-    std::fs::read_dir(parent).ok()?
+    std::fs::read_dir(parent)
+        .ok()?
         .flatten()
         .map(|e| e.path().join(suffix))
         .find(|p| p.exists())

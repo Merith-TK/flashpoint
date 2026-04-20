@@ -8,9 +8,7 @@ mod stage1;
 
 // CYD (ESP32-2432S028R) device capabilities.
 // QEMU mirrors these for test parity.
-pub const DEVICE_FEATURES: u64 =
-    common::FEAT_DISP_TFT |
-    common::FEAT_INPUT_TOUCH;
+pub const DEVICE_FEATURES: u64 = common::FEAT_DISP_TFT | common::FEAT_INPUT_TOUCH;
 
 #[cfg(feature = "board-cyd")]
 fn main() {

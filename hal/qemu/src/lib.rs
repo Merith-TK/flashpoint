@@ -5,19 +5,23 @@
 // emu-run kills QEMU after seeing the expected log output.
 
 use common::{
-    ChipId, Event, FrameBuffer, Platform, PlatformError,
-    FEAT_DISP_TFT, FLASHPOINT_CURRENT, FLASHPOINT_LAST_BREAKING,
+    ChipId, Event, FrameBuffer, Platform, PlatformError, FEAT_DISP_TFT, FLASHPOINT_CURRENT,
+    FLASHPOINT_LAST_BREAKING,
 };
 use std::vec::Vec;
 
 pub struct EmulatorPlatform;
 
 impl EmulatorPlatform {
-    pub fn new() -> Self { EmulatorPlatform }
+    pub fn new() -> Self {
+        EmulatorPlatform
+    }
 }
 
 impl Default for EmulatorPlatform {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Platform for EmulatorPlatform {
@@ -35,15 +39,25 @@ impl Platform for EmulatorPlatform {
         Ok(())
     }
 
-    fn display_width(&self)  -> u16 { 320 }
-    fn display_height(&self) -> u16 { 240 }
+    fn display_width(&self) -> u16 {
+        320
+    }
+    fn display_height(&self) -> u16 {
+        240
+    }
 
     // ── Input ─────────────────────────────────────────────────────────────────
-    fn poll_event(&self) -> Option<Event> { None }
+    fn poll_event(&self) -> Option<Event> {
+        None
+    }
 
     // ── System ────────────────────────────────────────────────────────────────
-    fn battery_percent(&self) -> u8 { 100 }
-    fn chip_id(&self)         -> ChipId { ChipId::Esp32 }
+    fn battery_percent(&self) -> u8 {
+        100
+    }
+    fn chip_id(&self) -> ChipId {
+        ChipId::Esp32
+    }
 
     fn sleep_ms(&self, ms: u32) {
         use esp_idf_svc::hal::delay::FreeRtos;
@@ -59,8 +73,12 @@ impl Platform for EmulatorPlatform {
         (FLASHPOINT_CURRENT, FLASHPOINT_LAST_BREAKING)
     }
 
-    fn wasm_arena_limit(&self) -> usize { 256 * 1024 }
-    fn lua_heap_limit(&self)   -> usize { 64 * 1024 }
+    fn wasm_arena_limit(&self) -> usize {
+        256 * 1024
+    }
+    fn lua_heap_limit(&self) -> usize {
+        64 * 1024
+    }
 
     // ── Capabilities ──────────────────────────────────────────────────────────
     fn features(&self) -> u64 {
@@ -74,7 +92,9 @@ impl Platform for EmulatorPlatform {
     fn sd_write_sectors(&self, _: u32, _: &[u8]) -> Result<(), PlatformError> {
         Err(PlatformError::SdWriteError)
     }
-    fn sd_sector_count(&self) -> u32 { 0 }
+    fn sd_sector_count(&self) -> u32 {
+        0
+    }
     fn nvs_read(&self, _: &str, _: &str) -> Result<Vec<u8>, PlatformError> {
         Err(PlatformError::NvsError)
     }

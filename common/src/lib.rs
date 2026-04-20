@@ -11,24 +11,24 @@ use alloc::vec::Vec;
 
 // ─── Header constants ────────────────────────────────────────────────────────
 
-pub const MAGIC:            [u8; 4] = *b"FLPT";
+pub const MAGIC: [u8; 4] = *b"FLPT";
 pub const HEADER_END_MAGIC: [u8; 4] = *b"FLPE";
-pub const HEADER_V1_SIZE:   usize   = 64;
+pub const HEADER_V1_SIZE: usize = 64;
 
 // Byte offsets within the v2 header block (64 bytes total)
-pub const OFF_MAGIC:             usize = 0x00; // 4 bytes  "FLPT"
-pub const OFF_PLATFORM:          usize = 0x04; // 1 byte   primary platform
-pub const OFF_ROM_VERSION:       usize = 0x05; // 3 bytes  [major, minor, patch]
-pub const OFF_BUILT_AGAINST:     usize = 0x08; // 4 bytes  Flashpoint API version (LE u32)
-pub const OFF_FLAGS:             usize = 0x0C; // 2 bytes
+pub const OFF_MAGIC: usize = 0x00; // 4 bytes  "FLPT"
+pub const OFF_PLATFORM: usize = 0x04; // 1 byte   primary platform
+pub const OFF_ROM_VERSION: usize = 0x05; // 3 bytes  [major, minor, patch]
+pub const OFF_BUILT_AGAINST: usize = 0x08; // 4 bytes  Flashpoint API version (LE u32)
+pub const OFF_FLAGS: usize = 0x0C; // 2 bytes
 pub const OFF_REQUIRED_FEATURES: usize = 0x0E; // 8 bytes  hardware bitmask (LE u64)
-pub const OFF_PAYLOAD_LEN:       usize = 0x16; // 4 bytes  (LE u32)
-pub const OFF_CRC32:             usize = 0x1A; // 4 bytes  CRC32 of payload (LE u32)
-pub const OFF_PAYLOAD_TYPE:      usize = 0x1E; // 1 byte   PayloadType
-pub const OFF_ROM_ID:            usize = 0x1F; // 24 bytes null-terminated ASCII namespace
-pub const OFF_COMPAT_PLATFORMS:  usize = 0x37; // 3 bytes  additional supported platforms
-pub const OFF_HEADER_SIZE:       usize = 0x3A; // 2 bytes  (LE u16), always 64
-pub const OFF_HEADER_END:        usize = 0x3C; // 4 bytes  "FLPE"
+pub const OFF_PAYLOAD_LEN: usize = 0x16; // 4 bytes  (LE u32)
+pub const OFF_CRC32: usize = 0x1A; // 4 bytes  CRC32 of payload (LE u32)
+pub const OFF_PAYLOAD_TYPE: usize = 0x1E; // 1 byte   PayloadType
+pub const OFF_ROM_ID: usize = 0x1F; // 24 bytes null-terminated ASCII namespace
+pub const OFF_COMPAT_PLATFORMS: usize = 0x37; // 3 bytes  additional supported platforms
+pub const OFF_HEADER_SIZE: usize = 0x3A; // 2 bytes  (LE u16), always 64
+pub const OFF_HEADER_END: usize = 0x3C; // 4 bytes  "FLPE"
 
 pub const ROM_ID_LEN: usize = 24; // includes null terminator; max 23 usable chars
 
@@ -51,7 +51,7 @@ impl PayloadType {
             0x00 => Some(Self::Native),
             0x01 => Some(Self::Wasm32),
             0x02 => Some(Self::Luac54),
-            _    => None,
+            _ => None,
         }
     }
 
@@ -74,49 +74,49 @@ pub fn version_unpack(v: u32) -> (u8, u8, u8) {
     ((v >> 16) as u8, ((v >> 8) & 0xFF) as u8, (v & 0xFF) as u8)
 }
 
-pub const FLASHPOINT_CURRENT:       u32 = version_pack(0, 2, 0); // bumped for v2 header
+pub const FLASHPOINT_CURRENT: u32 = version_pack(0, 2, 0); // bumped for v2 header
 pub const FLASHPOINT_LAST_BREAKING: u32 = version_pack(0, 2, 0);
 
 // ─── Platform IDs ────────────────────────────────────────────────────────────
 
-pub const PLATFORM_ESP32:   u8 = 0x01;
+pub const PLATFORM_ESP32: u8 = 0x01;
 pub const PLATFORM_ESP32S3: u8 = 0x02;
-pub const PLATFORM_RP2040:  u8 = 0x03;
-pub const PLATFORM_ANY:     u8 = 0xFF; // wildcard: ROM runs on any platform
+pub const PLATFORM_RP2040: u8 = 0x03;
+pub const PLATFORM_ANY: u8 = 0xFF; // wildcard: ROM runs on any platform
 
 // ─── Feature flags (byte-grouped u64) ───────────────────────────────────────
 
 // Byte 0 — Connectivity
-pub const FEAT_WIFI:          u64 = 1 << 0;
-pub const FEAT_BLE:           u64 = 1 << 1;
-pub const FEAT_USB_OTG:       u64 = 1 << 2;
+pub const FEAT_WIFI: u64 = 1 << 0;
+pub const FEAT_BLE: u64 = 1 << 1;
+pub const FEAT_USB_OTG: u64 = 1 << 2;
 
 // Byte 1 — Display
-pub const FEAT_DISP_TFT:      u64 = 1 << 8;
-pub const FEAT_DISP_EINK:     u64 = 1 << 9;
+pub const FEAT_DISP_TFT: u64 = 1 << 8;
+pub const FEAT_DISP_EINK: u64 = 1 << 9;
 
 // Byte 2 — Input
-pub const FEAT_INPUT_TOUCH:   u64 = 1 << 16;
+pub const FEAT_INPUT_TOUCH: u64 = 1 << 16;
 pub const FEAT_INPUT_BUTTONS: u64 = 1 << 17;
 
 // Byte 3 — Memory / Power
-pub const FEAT_PSRAM:         u64 = 1 << 24;
-pub const FEAT_BATTERY:       u64 = 1 << 25;
+pub const FEAT_PSRAM: u64 = 1 << 24;
+pub const FEAT_BATTERY: u64 = 1 << 25;
 
 pub fn parse_features(s: &str) -> Result<u64, &str> {
     let mut bits = 0u64;
     for part in s.split(',') {
         bits |= match part.trim() {
-            "wifi"          => FEAT_WIFI,
-            "ble"           => FEAT_BLE,
-            "usb_otg"       => FEAT_USB_OTG,
-            "disp_tft"      => FEAT_DISP_TFT,
-            "disp_eink"     => FEAT_DISP_EINK,
-            "input_touch"   => FEAT_INPUT_TOUCH,
+            "wifi" => FEAT_WIFI,
+            "ble" => FEAT_BLE,
+            "usb_otg" => FEAT_USB_OTG,
+            "disp_tft" => FEAT_DISP_TFT,
+            "disp_eink" => FEAT_DISP_EINK,
+            "input_touch" => FEAT_INPUT_TOUCH,
             "input_buttons" => FEAT_INPUT_BUTTONS,
-            "psram"         => FEAT_PSRAM,
-            "battery"       => FEAT_BATTERY,
-            other           => return Err(other),
+            "psram" => FEAT_PSRAM,
+            "battery" => FEAT_BATTERY,
+            other => return Err(other),
         };
     }
     Ok(bits)
@@ -125,29 +125,51 @@ pub fn parse_features(s: &str) -> Result<u64, &str> {
 #[cfg(feature = "std")]
 pub fn features_to_names(bits: u64) -> std::vec::Vec<&'static str> {
     let mut names = std::vec::Vec::new();
-    if bits & FEAT_WIFI          != 0 { names.push("wifi"); }
-    if bits & FEAT_BLE           != 0 { names.push("ble"); }
-    if bits & FEAT_USB_OTG       != 0 { names.push("usb_otg"); }
-    if bits & FEAT_DISP_TFT      != 0 { names.push("disp_tft"); }
-    if bits & FEAT_DISP_EINK     != 0 { names.push("disp_eink"); }
-    if bits & FEAT_INPUT_TOUCH   != 0 { names.push("input_touch"); }
-    if bits & FEAT_INPUT_BUTTONS != 0 { names.push("input_buttons"); }
-    if bits & FEAT_PSRAM         != 0 { names.push("psram"); }
-    if bits & FEAT_BATTERY       != 0 { names.push("battery"); }
+    if bits & FEAT_WIFI != 0 {
+        names.push("wifi");
+    }
+    if bits & FEAT_BLE != 0 {
+        names.push("ble");
+    }
+    if bits & FEAT_USB_OTG != 0 {
+        names.push("usb_otg");
+    }
+    if bits & FEAT_DISP_TFT != 0 {
+        names.push("disp_tft");
+    }
+    if bits & FEAT_DISP_EINK != 0 {
+        names.push("disp_eink");
+    }
+    if bits & FEAT_INPUT_TOUCH != 0 {
+        names.push("input_touch");
+    }
+    if bits & FEAT_INPUT_BUTTONS != 0 {
+        names.push("input_buttons");
+    }
+    if bits & FEAT_PSRAM != 0 {
+        names.push("psram");
+    }
+    if bits & FEAT_BATTERY != 0 {
+        names.push("battery");
+    }
     names
 }
 
 // ─── ChipId ──────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ChipId { Esp32, Esp32S3, Rp2040 }
+pub enum ChipId {
+    Esp32,
+    Esp32S3,
+    Rp2040,
+}
 
 impl ChipId {
     pub fn platform_byte(self) -> u8 {
         match self {
-            ChipId::Esp32   => PLATFORM_ESP32,
+            ChipId::Esp32 => PLATFORM_ESP32,
             ChipId::Esp32S3 => PLATFORM_ESP32S3,
-            ChipId::Rp2040  => PLATFORM_RP2040,
+            ChipId::Rp2040 => PLATFORM_RP2040,
         }
     }
 }
@@ -156,8 +178,14 @@ impl ChipId {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Event {
-    BtnUp, BtnDown, BtnLeft, BtnRight, BtnSelect, BtnBack,
-    BatteryLow, HibernateWarning,
+    BtnUp,
+    BtnDown,
+    BtnLeft,
+    BtnRight,
+    BtnSelect,
+    BtnBack,
+    BatteryLow,
+    HibernateWarning,
 }
 
 // ─── Platform handoff ────────────────────────────────────────────────────────
@@ -209,7 +237,11 @@ pub fn esp_idf_uart_poll_byte() -> Option<u8> {
         let mut byte: u8 = 0;
         let n = read(0, &mut byte as *mut u8 as *mut core::ffi::c_void, 1);
         fcntl(0, F_SETFL, flags); // restore original mode
-        if n == 1 { Some(byte) } else { None }
+        if n == 1 {
+            Some(byte)
+        } else {
+            None
+        }
     }
 }
 
@@ -258,24 +290,26 @@ pub fn validate_header(
 
     // Platform check: primary byte or any compat entry, with 0xFF wildcard
     let primary = data[OFF_PLATFORM];
-    let compat  = &data[OFF_COMPAT_PLATFORMS..OFF_COMPAT_PLATFORMS + 3];
+    let compat = &data[OFF_COMPAT_PLATFORMS..OFF_COMPAT_PLATFORMS + 3];
     let platform_ok = primary == PLATFORM_ANY
         || primary == our_platform
-        || compat.iter().any(|&b| b != 0x00 && (b == our_platform || b == PLATFORM_ANY));
+        || compat
+            .iter()
+            .any(|&b| b != 0x00 && (b == our_platform || b == PLATFORM_ANY));
     if !platform_ok {
         return Err(HeaderError::WrongPlatform);
     }
 
     let built_against = u32::from_le_bytes(
-        data[OFF_BUILT_AGAINST..OFF_BUILT_AGAINST + 4].try_into().unwrap()
+        data[OFF_BUILT_AGAINST..OFF_BUILT_AGAINST + 4]
+            .try_into()
+            .unwrap(),
     );
     if built_against < flashpoint_last_breaking || built_against > flashpoint_current {
         return Err(HeaderError::ApiIncompatible);
     }
 
-    let hdr_size = u16::from_le_bytes(
-        [data[OFF_HEADER_SIZE], data[OFF_HEADER_SIZE + 1]]
-    ) as usize;
+    let hdr_size = u16::from_le_bytes([data[OFF_HEADER_SIZE], data[OFF_HEADER_SIZE + 1]]) as usize;
     if hdr_size < HEADER_V1_SIZE {
         return Err(HeaderError::BadTerminator);
     }
@@ -287,14 +321,18 @@ pub fn validate_header(
     }
 
     let required = u64::from_le_bytes(
-        data[OFF_REQUIRED_FEATURES..OFF_REQUIRED_FEATURES + 8].try_into().unwrap()
+        data[OFF_REQUIRED_FEATURES..OFF_REQUIRED_FEATURES + 8]
+            .try_into()
+            .unwrap(),
     );
     if device_features & required != required {
         return Err(HeaderError::MissingFeatures);
     }
 
     let payload_len = u32::from_le_bytes(
-        data[OFF_PAYLOAD_LEN..OFF_PAYLOAD_LEN + 4].try_into().unwrap()
+        data[OFF_PAYLOAD_LEN..OFF_PAYLOAD_LEN + 4]
+            .try_into()
+            .unwrap(),
     ) as usize;
     if payload_len == 0 {
         return Err(HeaderError::BadPayloadLen);
@@ -313,9 +351,7 @@ pub fn verify_crc32(header: &[u8], payload: &[u8]) -> Result<(), HeaderError> {
     if header.len() < HEADER_V1_SIZE {
         return Err(HeaderError::TooShort);
     }
-    let expected = u32::from_le_bytes(
-        header[OFF_CRC32..OFF_CRC32 + 4].try_into().unwrap()
-    );
+    let expected = u32::from_le_bytes(header[OFF_CRC32..OFF_CRC32 + 4].try_into().unwrap());
     let computed = crc32(payload);
     if computed != expected {
         return Err(HeaderError::BadChecksum);
@@ -355,8 +391,7 @@ pub fn build_header(
     // remaining bytes already zero (null terminator + padding)
 
     h[OFF_COMPAT_PLATFORMS..OFF_COMPAT_PLATFORMS + 3].copy_from_slice(&compat_platforms);
-    h[OFF_HEADER_SIZE..OFF_HEADER_SIZE + 2]
-        .copy_from_slice(&(HEADER_V1_SIZE as u16).to_le_bytes());
+    h[OFF_HEADER_SIZE..OFF_HEADER_SIZE + 2].copy_from_slice(&(HEADER_V1_SIZE as u16).to_le_bytes());
     h[OFF_HEADER_END..OFF_HEADER_END + 4].copy_from_slice(&HEADER_END_MAGIC);
     h
 }
@@ -370,7 +405,11 @@ pub struct FrameBuffer<'a> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlatformError {
-    SdReadError, SdWriteError, NvsError, DisplayError, NotSupported,
+    SdReadError,
+    SdWriteError,
+    NvsError,
+    DisplayError,
+    NotSupported,
 }
 
 /// Hardware abstraction contract. firmware implements this per board.
@@ -390,7 +429,9 @@ pub trait Platform {
         log::warn!("sd_write_sectors not supported on this device");
         Err(PlatformError::NotSupported)
     }
-    fn sd_sector_count(&self) -> u32 { 0 }
+    fn sd_sector_count(&self) -> u32 {
+        0
+    }
     fn nvs_read(&self, _ns: &str, _key: &str) -> Result<Vec<u8>, PlatformError> {
         log::warn!("nvs_read not supported on this device");
         Err(PlatformError::NotSupported)
@@ -413,11 +454,17 @@ pub trait Platform {
         log::warn!("display_clear not supported on this device");
         Err(PlatformError::NotSupported)
     }
-    fn display_width(&self)  -> u16 { 0 }
-    fn display_height(&self) -> u16 { 0 }
+    fn display_width(&self) -> u16 {
+        0
+    }
+    fn display_height(&self) -> u16 {
+        0
+    }
 
     // ── Input ─────────────────────────────────────────────────────────────────
-    fn poll_event(&self) -> Option<Event> { None }
+    fn poll_event(&self) -> Option<Event> {
+        None
+    }
 
     /// Non-blocking read of one byte from the serial/UART console.
     /// Used by recovery mode for serial interaction alongside display/touch.
@@ -438,22 +485,34 @@ pub trait Platform {
     }
 
     // ── System ────────────────────────────────────────────────────────────────
-    fn battery_percent(&self) -> u8 { 100 }
-    fn chip_id(&self)         -> ChipId { ChipId::Esp32 }
-    fn reboot(&self)          -> ! { loop {} }
+    fn battery_percent(&self) -> u8 {
+        100
+    }
+    fn chip_id(&self) -> ChipId {
+        ChipId::Esp32
+    }
+    fn reboot(&self) -> ! {
+        loop {}
+    }
     fn sleep_ms(&self, _ms: u32) {}
     fn flashpoint_version(&self) -> (u32, u32) {
         (FLASHPOINT_CURRENT, FLASHPOINT_LAST_BREAKING)
     }
     /// Max bytes of WASM linear memory this device can provide (0 = no WASM support)
-    fn wasm_arena_limit(&self) -> usize { 0 }
+    fn wasm_arena_limit(&self) -> usize {
+        0
+    }
     /// Max bytes of Lua heap this device can provide (0 = no Lua support)
-    fn lua_heap_limit(&self)   -> usize { 0 }
+    fn lua_heap_limit(&self) -> usize {
+        0
+    }
 
     // ── Capability reporting ──────────────────────────────────────────────────
     /// Bitmask of FEAT_* constants describing hardware capabilities.
     /// Used by the recovery menu and ROM validation. Default: no features.
-    fn features(&self) -> u64 { 0 }
+    fn features(&self) -> u64 {
+        0
+    }
 }
 
 // ─── Hardware-agnostic kernel entry ─────────────────────────────────────────
@@ -478,7 +537,11 @@ pub fn boot_main(platform: &dyn Platform) -> ! {
     // "up" physically and the heart appears upright, orientation is correct.
     #[cfg(feature = "test-image")]
     {
-        log::info!("[boot_main] rendering orientation test image ({}x{})", TEST_IMAGE_W, TEST_IMAGE_H);
+        log::info!(
+            "[boot_main] rendering orientation test image ({}x{})",
+            TEST_IMAGE_W,
+            TEST_IMAGE_H
+        );
         display_fill(platform, 0x0000); // black background
         let x_off = (w.saturating_sub(TEST_IMAGE_W)) / 2;
         let y_off = (h.saturating_sub(TEST_IMAGE_H)) / 2;
@@ -486,9 +549,14 @@ pub fn boot_main(platform: &dyn Platform) -> ! {
         let mut row_buf = [0u8; 640]; // max 320px wide * 2
         for img_y in 0..TEST_IMAGE_H {
             let screen_y = y_off + img_y;
-            if screen_y >= h { break; }
+            if screen_y >= h {
+                break;
+            }
             // Fill row with black
-            for i in (0..w as usize * 2).step_by(2) { row_buf[i] = 0; row_buf[i+1] = 0; }
+            for i in (0..w as usize * 2).step_by(2) {
+                row_buf[i] = 0;
+                row_buf[i + 1] = 0;
+            }
             // Copy image row into the correct x offset
             let src_start = img_y as usize * row_bytes;
             let src_end = src_start + row_bytes;
@@ -497,16 +565,30 @@ pub fn boot_main(platform: &dyn Platform) -> ! {
             if src_end <= TEST_IMAGE.len() && dst_end <= row_buf.len() {
                 row_buf[dst_start..dst_end].copy_from_slice(&TEST_IMAGE[src_start..src_end]);
             }
-            platform.display_flush(&FrameBuffer { y: screen_y, data: &row_buf[..w as usize * 2] }).ok();
+            platform
+                .display_flush(&FrameBuffer {
+                    y: screen_y,
+                    data: &row_buf[..w as usize * 2],
+                })
+                .ok();
         }
         // Label the edges for orientation
-        display_text(platform, x_off, y_off.saturating_sub(10), "TOP (USB?)", 0xFFFF, 0x0000);
+        display_text(
+            platform,
+            x_off,
+            y_off.saturating_sub(10),
+            "TOP (USB?)",
+            0xFFFF,
+            0x0000,
+        );
         let bottom_y = y_off + TEST_IMAGE_H + 2;
         if bottom_y + 8 <= h {
             display_text(platform, x_off, bottom_y, "BOTTOM", 0xFFFF, 0x0000);
         }
         log::info!("[boot_main] test image rendered — looping forever");
-        loop { platform.sleep_ms(100); }
+        loop {
+            platform.sleep_ms(100);
+        }
     }
 
     display_fill(platform, 0x000F); // dark navy background
@@ -539,49 +621,49 @@ pub fn boot_main(platform: &dyn Platform) -> ! {
 /// Input is case-insensitive; lowercase is treated as uppercase.
 fn font_glyph(c: u8) -> [u8; 8] {
     match c.to_ascii_uppercase() {
-        b' ' => [0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00],
-        b'!' => [0x18,0x18,0x18,0x18,0x18,0x00,0x18,0x00],
-        b'.' => [0x00,0x00,0x00,0x00,0x00,0x18,0x18,0x00],
-        b'-' => [0x00,0x00,0x00,0x7E,0x00,0x00,0x00,0x00],
-        b':' => [0x00,0x18,0x18,0x00,0x18,0x18,0x00,0x00],
-        b'/' => [0x00,0x02,0x04,0x08,0x10,0x20,0x00,0x00],
-        b'0' => [0x3C,0x42,0x46,0x4A,0x52,0x62,0x3C,0x00],
-        b'1' => [0x08,0x18,0x08,0x08,0x08,0x08,0x1C,0x00],
-        b'2' => [0x3C,0x42,0x02,0x0C,0x30,0x40,0x7E,0x00],
-        b'3' => [0x3C,0x42,0x02,0x1C,0x02,0x42,0x3C,0x00],
-        b'4' => [0x04,0x0C,0x14,0x24,0x7E,0x04,0x04,0x00],
-        b'5' => [0x7E,0x40,0x7C,0x02,0x02,0x42,0x3C,0x00],
-        b'6' => [0x3C,0x40,0x7C,0x42,0x42,0x42,0x3C,0x00],
-        b'7' => [0x7E,0x02,0x04,0x08,0x10,0x20,0x20,0x00],
-        b'8' => [0x3C,0x42,0x42,0x3C,0x42,0x42,0x3C,0x00],
-        b'9' => [0x3C,0x42,0x42,0x3E,0x02,0x42,0x3C,0x00],
-        b'A' => [0x18,0x24,0x42,0x7E,0x42,0x42,0x42,0x00],
-        b'B' => [0x7C,0x42,0x42,0x7C,0x42,0x42,0x7C,0x00],
-        b'C' => [0x3C,0x42,0x40,0x40,0x40,0x42,0x3C,0x00],
-        b'D' => [0x78,0x44,0x42,0x42,0x42,0x44,0x78,0x00],
-        b'E' => [0x7E,0x40,0x40,0x7C,0x40,0x40,0x7E,0x00],
-        b'F' => [0x7E,0x40,0x40,0x7C,0x40,0x40,0x40,0x00],
-        b'G' => [0x3C,0x42,0x40,0x4E,0x42,0x42,0x3C,0x00],
-        b'H' => [0x42,0x42,0x42,0x7E,0x42,0x42,0x42,0x00],
-        b'I' => [0x3E,0x08,0x08,0x08,0x08,0x08,0x3E,0x00],
-        b'J' => [0x1E,0x04,0x04,0x04,0x44,0x44,0x3C,0x00],
-        b'K' => [0x42,0x44,0x48,0x70,0x48,0x44,0x42,0x00],
-        b'L' => [0x40,0x40,0x40,0x40,0x40,0x40,0x7E,0x00],
-        b'M' => [0x42,0x66,0x5A,0x42,0x42,0x42,0x42,0x00],
-        b'N' => [0x42,0x62,0x52,0x4A,0x46,0x42,0x42,0x00],
-        b'O' => [0x3C,0x42,0x42,0x42,0x42,0x42,0x3C,0x00],
-        b'P' => [0x7C,0x42,0x42,0x7C,0x40,0x40,0x40,0x00],
-        b'Q' => [0x3C,0x42,0x42,0x42,0x4A,0x44,0x3A,0x00],
-        b'R' => [0x7C,0x42,0x42,0x7C,0x48,0x44,0x42,0x00],
-        b'S' => [0x3C,0x42,0x40,0x3C,0x02,0x42,0x3C,0x00],
-        b'T' => [0x7E,0x08,0x08,0x08,0x08,0x08,0x08,0x00],
-        b'U' => [0x42,0x42,0x42,0x42,0x42,0x42,0x3C,0x00],
-        b'V' => [0x42,0x42,0x42,0x42,0x24,0x24,0x18,0x00],
-        b'W' => [0x42,0x42,0x42,0x42,0x5A,0x66,0x42,0x00],
-        b'X' => [0x42,0x42,0x24,0x18,0x24,0x42,0x42,0x00],
-        b'Y' => [0x42,0x42,0x24,0x18,0x08,0x08,0x08,0x00],
-        b'Z' => [0x7E,0x02,0x04,0x08,0x10,0x20,0x7E,0x00],
-        _    => [0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00],
+        b' ' => [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
+        b'!' => [0x18, 0x18, 0x18, 0x18, 0x18, 0x00, 0x18, 0x00],
+        b'.' => [0x00, 0x00, 0x00, 0x00, 0x00, 0x18, 0x18, 0x00],
+        b'-' => [0x00, 0x00, 0x00, 0x7E, 0x00, 0x00, 0x00, 0x00],
+        b':' => [0x00, 0x18, 0x18, 0x00, 0x18, 0x18, 0x00, 0x00],
+        b'/' => [0x00, 0x02, 0x04, 0x08, 0x10, 0x20, 0x00, 0x00],
+        b'0' => [0x3C, 0x42, 0x46, 0x4A, 0x52, 0x62, 0x3C, 0x00],
+        b'1' => [0x08, 0x18, 0x08, 0x08, 0x08, 0x08, 0x1C, 0x00],
+        b'2' => [0x3C, 0x42, 0x02, 0x0C, 0x30, 0x40, 0x7E, 0x00],
+        b'3' => [0x3C, 0x42, 0x02, 0x1C, 0x02, 0x42, 0x3C, 0x00],
+        b'4' => [0x04, 0x0C, 0x14, 0x24, 0x7E, 0x04, 0x04, 0x00],
+        b'5' => [0x7E, 0x40, 0x7C, 0x02, 0x02, 0x42, 0x3C, 0x00],
+        b'6' => [0x3C, 0x40, 0x7C, 0x42, 0x42, 0x42, 0x3C, 0x00],
+        b'7' => [0x7E, 0x02, 0x04, 0x08, 0x10, 0x20, 0x20, 0x00],
+        b'8' => [0x3C, 0x42, 0x42, 0x3C, 0x42, 0x42, 0x3C, 0x00],
+        b'9' => [0x3C, 0x42, 0x42, 0x3E, 0x02, 0x42, 0x3C, 0x00],
+        b'A' => [0x18, 0x24, 0x42, 0x7E, 0x42, 0x42, 0x42, 0x00],
+        b'B' => [0x7C, 0x42, 0x42, 0x7C, 0x42, 0x42, 0x7C, 0x00],
+        b'C' => [0x3C, 0x42, 0x40, 0x40, 0x40, 0x42, 0x3C, 0x00],
+        b'D' => [0x78, 0x44, 0x42, 0x42, 0x42, 0x44, 0x78, 0x00],
+        b'E' => [0x7E, 0x40, 0x40, 0x7C, 0x40, 0x40, 0x7E, 0x00],
+        b'F' => [0x7E, 0x40, 0x40, 0x7C, 0x40, 0x40, 0x40, 0x00],
+        b'G' => [0x3C, 0x42, 0x40, 0x4E, 0x42, 0x42, 0x3C, 0x00],
+        b'H' => [0x42, 0x42, 0x42, 0x7E, 0x42, 0x42, 0x42, 0x00],
+        b'I' => [0x3E, 0x08, 0x08, 0x08, 0x08, 0x08, 0x3E, 0x00],
+        b'J' => [0x1E, 0x04, 0x04, 0x04, 0x44, 0x44, 0x3C, 0x00],
+        b'K' => [0x42, 0x44, 0x48, 0x70, 0x48, 0x44, 0x42, 0x00],
+        b'L' => [0x40, 0x40, 0x40, 0x40, 0x40, 0x40, 0x7E, 0x00],
+        b'M' => [0x42, 0x66, 0x5A, 0x42, 0x42, 0x42, 0x42, 0x00],
+        b'N' => [0x42, 0x62, 0x52, 0x4A, 0x46, 0x42, 0x42, 0x00],
+        b'O' => [0x3C, 0x42, 0x42, 0x42, 0x42, 0x42, 0x3C, 0x00],
+        b'P' => [0x7C, 0x42, 0x42, 0x7C, 0x40, 0x40, 0x40, 0x00],
+        b'Q' => [0x3C, 0x42, 0x42, 0x42, 0x4A, 0x44, 0x3A, 0x00],
+        b'R' => [0x7C, 0x42, 0x42, 0x7C, 0x48, 0x44, 0x42, 0x00],
+        b'S' => [0x3C, 0x42, 0x40, 0x3C, 0x02, 0x42, 0x3C, 0x00],
+        b'T' => [0x7E, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x00],
+        b'U' => [0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x3C, 0x00],
+        b'V' => [0x42, 0x42, 0x42, 0x42, 0x24, 0x24, 0x18, 0x00],
+        b'W' => [0x42, 0x42, 0x42, 0x42, 0x5A, 0x66, 0x42, 0x00],
+        b'X' => [0x42, 0x42, 0x24, 0x18, 0x24, 0x42, 0x42, 0x00],
+        b'Y' => [0x42, 0x42, 0x24, 0x18, 0x08, 0x08, 0x08, 0x00],
+        b'Z' => [0x7E, 0x02, 0x04, 0x08, 0x10, 0x20, 0x7E, 0x00],
+        _ => [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
     }
 }
 
@@ -599,9 +681,16 @@ pub fn draw_text_row(row: &mut [u8], x_start: usize, text: &str, char_row: u8, f
             // Display scans right-to-left: mirror x so text reads correctly.
             let logical_x = x_start + ci * 8 + bit;
             let px = (row_px.saturating_sub(1 + logical_x)) * 2;
-            if px + 1 >= row.len() { continue; }
-            let color = if (glyph_row >> (7 - bit)) & 1 != 0 { fg_b } else { bg_b };
-            row[px] = color[0]; row[px + 1] = color[1];
+            if px + 1 >= row.len() {
+                continue;
+            }
+            let color = if (glyph_row >> (7 - bit)) & 1 != 0 {
+                fg_b
+            } else {
+                bg_b
+            };
+            row[px] = color[0];
+            row[px + 1] = color[1];
         }
     }
 }
@@ -609,7 +698,11 @@ pub fn draw_text_row(row: &mut [u8], x_start: usize, text: &str, char_row: u8, f
 /// Returns the x pixel offset to horizontally center `text` in a row of `w` pixels.
 pub fn text_x_center(w: u16, text: &str) -> usize {
     let tw = text.len() * 8;
-    if tw >= w as usize { 0 } else { (w as usize - tw) / 2 }
+    if tw >= w as usize {
+        0
+    } else {
+        (w as usize - tw) / 2
+    }
 }
 
 /// Fill the entire display with a single RGB565 colour.
@@ -618,9 +711,17 @@ pub fn display_fill(platform: &dyn Platform, color: u16) {
     let h = platform.display_height();
     let mut row = [0u8; 640];
     let b = color.to_le_bytes();
-    for i in (0..w as usize * 2).step_by(2) { row[i] = b[0]; row[i + 1] = b[1]; }
+    for i in (0..w as usize * 2).step_by(2) {
+        row[i] = b[0];
+        row[i + 1] = b[1];
+    }
     for y in 0..h {
-        platform.display_flush(&FrameBuffer { y, data: &row[..w as usize * 2] }).ok();
+        platform
+            .display_flush(&FrameBuffer {
+                y,
+                data: &row[..w as usize * 2],
+            })
+            .ok();
     }
 }
 
@@ -631,9 +732,24 @@ pub fn display_text(platform: &dyn Platform, x: u16, y: u16, text: &str, fg: u16
     let mut row = [0u8; 640];
     let bg_b = bg.to_le_bytes();
     for row_i in 0u16..8 {
-        for i in (0..w as usize * 2).step_by(2) { row[i] = bg_b[0]; row[i + 1] = bg_b[1]; }
-        draw_text_row(&mut row[..w as usize * 2], x as usize, text, row_i as u8, fg, bg);
-        platform.display_flush(&FrameBuffer { y: y + row_i, data: &row[..w as usize * 2] }).ok();
+        for i in (0..w as usize * 2).step_by(2) {
+            row[i] = bg_b[0];
+            row[i + 1] = bg_b[1];
+        }
+        draw_text_row(
+            &mut row[..w as usize * 2],
+            x as usize,
+            text,
+            row_i as u8,
+            fg,
+            bg,
+        );
+        platform
+            .display_flush(&FrameBuffer {
+                y: y + row_i,
+                data: &row[..w as usize * 2],
+            })
+            .ok();
     }
 }
 
@@ -646,8 +762,8 @@ enum RecoveryItem {
     DisplayTest,
     TouchTest,
     LedTest,
-    WifiAp,    // only shown when FEAT_WIFI
-    UsbMount,  // only shown when FEAT_USB_OTG
+    WifiAp,   // only shown when FEAT_WIFI
+    UsbMount, // only shown when FEAT_USB_OTG
     Reboot,
 }
 
@@ -656,29 +772,29 @@ impl RecoveryItem {
     fn color_active(self) -> u16 {
         match self {
             RecoveryItem::DisplayTest => 0xF81F, // magenta
-            RecoveryItem::TouchTest   => 0x07FF, // cyan
-            RecoveryItem::LedTest     => 0xFFE0, // yellow
-            RecoveryItem::WifiAp      => 0x001F, // blue
-            RecoveryItem::UsbMount    => 0x07E0, // green
-            RecoveryItem::Reboot      => 0xF800, // red
+            RecoveryItem::TouchTest => 0x07FF,   // cyan
+            RecoveryItem::LedTest => 0xFFE0,     // yellow
+            RecoveryItem::WifiAp => 0x001F,      // blue
+            RecoveryItem::UsbMount => 0x07E0,    // green
+            RecoveryItem::Reboot => 0xF800,      // red
         }
     }
     /// Dimmed (inactive) version: shift right 2 bits per channel.
     fn color_inactive(self) -> u16 {
         let c = self.color_active();
         let r = (c >> 11) & 0x1F;
-        let g = (c >>  5) & 0x3F;
-        let b =  c        & 0x1F;
+        let g = (c >> 5) & 0x3F;
+        let b = c & 0x1F;
         ((r >> 2) << 11) | ((g >> 2) << 5) | (b >> 2)
     }
     fn label(self) -> &'static str {
         match self {
             RecoveryItem::DisplayTest => "DISPLAY TEST",
-            RecoveryItem::TouchTest   => "TOUCH TEST",
-            RecoveryItem::LedTest     => "LED TEST",
-            RecoveryItem::WifiAp      => "WIFI AP RECOVERY",
-            RecoveryItem::UsbMount    => "USB MOUNT SD",
-            RecoveryItem::Reboot      => "REBOOT",
+            RecoveryItem::TouchTest => "TOUCH TEST",
+            RecoveryItem::LedTest => "LED TEST",
+            RecoveryItem::WifiAp => "WIFI AP RECOVERY",
+            RecoveryItem::UsbMount => "USB MOUNT SD",
+            RecoveryItem::Reboot => "REBOOT",
         }
     }
 }
@@ -694,8 +810,8 @@ fn uart_byte_to_event(byte: u8) -> Option<Event> {
         b's' | b'S' | b'j' | b'J' => Some(Event::BtnDown),
         b'a' | b'A' | b'h' | b'H' => Some(Event::BtnLeft),
         b'd' | b'D' | b'l' | b'L' => Some(Event::BtnRight),
-        b'\r' | b'\n' | b' '      => Some(Event::BtnSelect),
-        b'q' | b'Q' | 0x1B        => Some(Event::BtnBack),
+        b'\r' | b'\n' | b' ' => Some(Event::BtnSelect),
+        b'q' | b'Q' | 0x1B => Some(Event::BtnBack),
         _ => None,
     }
 }
@@ -706,7 +822,9 @@ fn uart_byte_to_event(byte: u8) -> Option<Event> {
 fn uart_byte_to_index(byte: u8, item_count: usize) -> Option<usize> {
     if byte >= b'1' && byte <= b'9' {
         let idx = (byte - b'1') as usize;
-        if idx < item_count { return Some(idx); }
+        if idx < item_count {
+            return Some(idx);
+        }
     }
     None
 }
@@ -727,9 +845,13 @@ fn poll_recovery_input(platform: &dyn Platform) -> (Option<Event>, Option<u8>) {
 /// Simple any-input check: returns true if hardware or UART produced any event.
 /// Used by recovery actions that just need "wait for any key/touch".
 fn any_recovery_input(platform: &dyn Platform) -> bool {
-    if platform.poll_event().is_some() { return true; }
+    if platform.poll_event().is_some() {
+        return true;
+    }
     #[cfg(not(feature = "no-uart-recovery"))]
-    if platform.uart_poll_byte().is_some() { return true; }
+    if platform.uart_poll_byte().is_some() {
+        return true;
+    }
     false
 }
 
@@ -741,7 +863,10 @@ fn uart_log_menu(items: &[RecoveryItem], selected: usize) {
         let marker = if i == selected { ">>" } else { "  " };
         log::info!("[recovery] {} [{}] {}", marker, i + 1, item.label());
     }
-    log::info!("[recovery] Navigate: w/s or k/j | Select: Enter/Space | Direct: 1-{}", items.len());
+    log::info!(
+        "[recovery] Navigate: w/s or k/j | Select: Enter/Space | Direct: 1-{}",
+        items.len()
+    );
 }
 
 /// Hardware-agnostic recovery menu.
@@ -756,8 +881,8 @@ pub fn recovery_main(platform: &dyn Platform) -> ! {
     log::info!("[recovery] entering recovery mode");
 
     let has_display = platform.features() & FEAT_DISP_TFT != 0;
-    let has_wifi    = platform.features() & FEAT_WIFI     != 0;
-    let has_usb_otg = platform.features() & FEAT_USB_OTG  != 0;
+    let has_wifi = platform.features() & FEAT_WIFI != 0;
+    let has_usb_otg = platform.features() & FEAT_USB_OTG != 0;
 
     if has_display {
         recovery_display_menu(platform, has_wifi, has_usb_otg)
@@ -771,8 +896,12 @@ fn build_recovery_items(has_wifi: bool, has_usb_otg: bool) -> Vec<RecoveryItem> 
     items.push(RecoveryItem::DisplayTest);
     items.push(RecoveryItem::TouchTest);
     items.push(RecoveryItem::LedTest);
-    if has_wifi { items.push(RecoveryItem::WifiAp); }
-    if has_usb_otg { items.push(RecoveryItem::UsbMount); }
+    if has_wifi {
+        items.push(RecoveryItem::WifiAp);
+    }
+    if has_usb_otg {
+        items.push(RecoveryItem::UsbMount);
+    }
     items.push(RecoveryItem::Reboot);
     items
 }
@@ -811,12 +940,16 @@ fn recovery_display_menu(platform: &dyn Platform, has_wifi: bool, has_usb_otg: b
             }
             match event {
                 Some(Event::BtnUp) => {
-                    if selected > 0 { selected -= 1; }
+                    if selected > 0 {
+                        selected -= 1;
+                    }
                     recovery_draw_menu(platform, &items, selected, w, h, band);
                     uart_log_menu(&items, selected);
                 }
                 Some(Event::BtnDown) => {
-                    if selected + 1 < items.len() { selected += 1; }
+                    if selected + 1 < items.len() {
+                        selected += 1;
+                    }
                     recovery_draw_menu(platform, &items, selected, w, h, band);
                     uart_log_menu(&items, selected);
                 }
@@ -832,11 +965,15 @@ fn recovery_display_menu(platform: &dyn Platform, has_wifi: bool, has_usb_otg: b
         #[cfg(feature = "no-uart-recovery")]
         match platform.poll_event() {
             Some(Event::BtnUp) => {
-                if selected > 0 { selected -= 1; }
+                if selected > 0 {
+                    selected -= 1;
+                }
                 recovery_draw_menu(platform, &items, selected, w, h, band);
             }
             Some(Event::BtnDown) => {
-                if selected + 1 < items.len() { selected += 1; }
+                if selected + 1 < items.len() {
+                    selected += 1;
+                }
                 recovery_draw_menu(platform, &items, selected, w, h, band);
             }
             Some(Event::BtnSelect) => {
@@ -862,22 +999,34 @@ fn recovery_draw_menu(
     for y in 0..h {
         let item_idx = ((y / band) as usize).min(n as usize - 1);
         let active = item_idx == selected;
-        let bg = if active { items[item_idx].color_active() } else { items[item_idx].color_inactive() };
+        let bg = if active {
+            items[item_idx].color_active()
+        } else {
+            items[item_idx].color_inactive()
+        };
         // Fill row with band colour.
         let b = bg.to_le_bytes();
-        for i in (0..w as usize * 2).step_by(2) { row[i] = b[0]; row[i + 1] = b[1]; }
+        for i in (0..w as usize * 2).step_by(2) {
+            row[i] = b[0];
+            row[i + 1] = b[1];
+        }
         // Overlay text label centred vertically within the band.
         let band_start = item_idx as u16 * band;
-        let text_top   = band_start + band.saturating_sub(8) / 2;
+        let text_top = band_start + band.saturating_sub(8) / 2;
         if y >= text_top && y < text_top + 8 {
-            let label    = items[item_idx].label();
+            let label = items[item_idx].label();
             let char_row = (y - text_top) as u8;
-            let lx       = text_x_center(w, label);
+            let lx = text_x_center(w, label);
             // Black text on bright (selected) band, white on dimmed (unselected).
-            let fg: u16  = if active { 0x0000 } else { 0xFFFF };
+            let fg: u16 = if active { 0x0000 } else { 0xFFFF };
             draw_text_row(&mut row[..w as usize * 2], lx, label, char_row, fg, bg);
         }
-        platform.display_flush(&FrameBuffer { y, data: &row[..w as usize * 2] }).ok();
+        platform
+            .display_flush(&FrameBuffer {
+                y,
+                data: &row[..w as usize * 2],
+            })
+            .ok();
     }
 }
 
@@ -894,12 +1043,22 @@ fn recovery_run_item(platform: &dyn Platform, item: RecoveryItem) {
             for y in 0..h {
                 let c = colors[((y / stripe_h) as usize).min(4)];
                 let b = c.to_le_bytes();
-                for i in (0..w as usize * 2).step_by(2) { row[i] = b[0]; row[i+1] = b[1]; }
-                platform.display_flush(&FrameBuffer { y, data: &row[..w as usize * 2] }).ok();
+                for i in (0..w as usize * 2).step_by(2) {
+                    row[i] = b[0];
+                    row[i + 1] = b[1];
+                }
+                platform
+                    .display_flush(&FrameBuffer {
+                        y,
+                        data: &row[..w as usize * 2],
+                    })
+                    .ok();
             }
             log::info!("[recovery] display test — any input to exit");
             loop {
-                if any_recovery_input(platform) { break; }
+                if any_recovery_input(platform) {
+                    break;
+                }
                 platform.sleep_ms(50);
             }
         }
@@ -911,17 +1070,25 @@ fn recovery_run_item(platform: &dyn Platform, item: RecoveryItem) {
             let mut deadline = 5000u32;
             while deadline > 0 {
                 let color: u16 = match platform.poll_event() {
-                    Some(Event::BtnUp)     => 0x07FF,
-                    Some(Event::BtnDown)   => 0xF800,
-                    Some(Event::BtnLeft)   => 0x001F,
-                    Some(Event::BtnRight)  => 0x07E0,
+                    Some(Event::BtnUp) => 0x07FF,
+                    Some(Event::BtnDown) => 0xF800,
+                    Some(Event::BtnLeft) => 0x001F,
+                    Some(Event::BtnRight) => 0x07E0,
                     Some(Event::BtnSelect) => break,
-                    _                      => 0x2104, // dark grey
+                    _ => 0x2104, // dark grey
                 };
                 let b = color.to_le_bytes();
                 for y in 0..h {
-                    for i in (0..w as usize * 2).step_by(2) { row[i] = b[0]; row[i+1] = b[1]; }
-                    platform.display_flush(&FrameBuffer { y, data: &row[..w as usize * 2] }).ok();
+                    for i in (0..w as usize * 2).step_by(2) {
+                        row[i] = b[0];
+                        row[i + 1] = b[1];
+                    }
+                    platform
+                        .display_flush(&FrameBuffer {
+                            y,
+                            data: &row[..w as usize * 2],
+                        })
+                        .ok();
                 }
                 platform.sleep_ms(50);
                 deadline = deadline.saturating_sub(50);
@@ -929,10 +1096,15 @@ fn recovery_run_item(platform: &dyn Platform, item: RecoveryItem) {
         }
         RecoveryItem::LedTest => {
             log::info!("[recovery] running LED test");
-            let seq: [(u8,u8,u8); 6] = [
-                (255,0,0), (0,255,0), (0,0,255), (255,255,0), (255,255,255), (0,0,0)
+            let seq: [(u8, u8, u8); 6] = [
+                (255, 0, 0),
+                (0, 255, 0),
+                (0, 0, 255),
+                (255, 255, 0),
+                (255, 255, 255),
+                (0, 0, 0),
             ];
-            for (r,g,b) in seq {
+            for (r, g, b) in seq {
                 if platform.led_rgb(r, g, b).is_err() {
                     log::warn!("[recovery] LED not available on this device");
                     break;
@@ -985,11 +1157,15 @@ fn recovery_console(platform: &dyn Platform, has_wifi: bool, has_usb_otg: bool) 
             }
             match event {
                 Some(Event::BtnUp) => {
-                    if selected > 0 { selected -= 1; }
+                    if selected > 0 {
+                        selected -= 1;
+                    }
                     uart_log_menu(&items, selected);
                 }
                 Some(Event::BtnDown) => {
-                    if selected + 1 < items.len() { selected += 1; }
+                    if selected + 1 < items.len() {
+                        selected += 1;
+                    }
                     uart_log_menu(&items, selected);
                 }
                 Some(Event::BtnSelect) => {
@@ -1012,7 +1188,13 @@ fn recovery_console(platform: &dyn Platform, has_wifi: bool, has_usb_otg: bool) 
         platform.sleep_ms(500);
 
         log::info!("[recovery] running LED test...");
-        for (r,g,b) in [(255u8,0,0),(0,255,0),(0,0,255),(255,255,255),(0u8,0,0)] {
+        for (r, g, b) in [
+            (255u8, 0, 0),
+            (0, 255, 0),
+            (0, 0, 255),
+            (255, 255, 255),
+            (0u8, 0, 0),
+        ] {
             if platform.led_rgb(r, g, b).is_err() {
                 log::warn!("[recovery] LED not available");
                 break;
@@ -1032,14 +1214,24 @@ fn recovery_console(platform: &dyn Platform, has_wifi: bool, has_usb_otg: bool) 
 mod tests {
     use super::*;
 
-    fn dummy_crc() -> u32 { 0xDEAD_BEEF }
+    fn dummy_crc() -> u32 {
+        0xDEAD_BEEF
+    }
 
     fn make_valid_header() -> [u8; HEADER_V1_SIZE] {
         let payload = b"test payload";
         let checksum = crc32(payload);
         build_header(
-            PLATFORM_ESP32, [0, 2, 0], FLASHPOINT_CURRENT, 0, 0,
-            payload.len() as u32, PayloadType::Native, "com.test", [0, 0, 0], checksum,
+            PLATFORM_ESP32,
+            [0, 2, 0],
+            FLASHPOINT_CURRENT,
+            0,
+            0,
+            payload.len() as u32,
+            PayloadType::Native,
+            "com.test",
+            [0, 0, 0],
+            checksum,
         )
     }
 
@@ -1063,7 +1255,13 @@ mod tests {
         let mut h = make_valid_header();
         h[0] = 0xFF;
         assert_eq!(
-            validate_header(&h, 0, PLATFORM_ESP32, FLASHPOINT_CURRENT, FLASHPOINT_LAST_BREAKING),
+            validate_header(
+                &h,
+                0,
+                PLATFORM_ESP32,
+                FLASHPOINT_CURRENT,
+                FLASHPOINT_LAST_BREAKING
+            ),
             Err(HeaderError::BadMagic)
         );
     }
@@ -1072,7 +1270,13 @@ mod tests {
     fn validate_rejects_wrong_platform() {
         let h = make_valid_header();
         assert_eq!(
-            validate_header(&h, 0, PLATFORM_ESP32S3, FLASHPOINT_CURRENT, FLASHPOINT_LAST_BREAKING),
+            validate_header(
+                &h,
+                0,
+                PLATFORM_ESP32S3,
+                FLASHPOINT_CURRENT,
+                FLASHPOINT_LAST_BREAKING
+            ),
             Err(HeaderError::WrongPlatform)
         );
     }
@@ -1082,31 +1286,75 @@ mod tests {
         // Build ROM targeting ESP32S3 primary + ESP32 as compat
         let payload = b"x";
         let h = build_header(
-            PLATFORM_ESP32S3, [0, 2, 0], FLASHPOINT_CURRENT, 0, 0,
-            1, PayloadType::Native, "", [PLATFORM_ESP32, 0, 0], crc32(payload),
+            PLATFORM_ESP32S3,
+            [0, 2, 0],
+            FLASHPOINT_CURRENT,
+            0,
+            0,
+            1,
+            PayloadType::Native,
+            "",
+            [PLATFORM_ESP32, 0, 0],
+            crc32(payload),
         );
-        assert!(validate_header(&h, 0, PLATFORM_ESP32, FLASHPOINT_CURRENT, FLASHPOINT_LAST_BREAKING).is_ok());
+        assert!(validate_header(
+            &h,
+            0,
+            PLATFORM_ESP32,
+            FLASHPOINT_CURRENT,
+            FLASHPOINT_LAST_BREAKING
+        )
+        .is_ok());
     }
 
     #[test]
     fn validate_accepts_platform_any_wildcard() {
         let payload = b"x";
         let h = build_header(
-            PLATFORM_ANY, [0, 2, 0], FLASHPOINT_CURRENT, 0, 0,
-            1, PayloadType::Native, "", [0, 0, 0], crc32(payload),
+            PLATFORM_ANY,
+            [0, 2, 0],
+            FLASHPOINT_CURRENT,
+            0,
+            0,
+            1,
+            PayloadType::Native,
+            "",
+            [0, 0, 0],
+            crc32(payload),
         );
-        assert!(validate_header(&h, 0, PLATFORM_RP2040, FLASHPOINT_CURRENT, FLASHPOINT_LAST_BREAKING).is_ok());
+        assert!(validate_header(
+            &h,
+            0,
+            PLATFORM_RP2040,
+            FLASHPOINT_CURRENT,
+            FLASHPOINT_LAST_BREAKING
+        )
+        .is_ok());
     }
 
     #[test]
     fn validate_rejects_api_incompatible_too_old() {
         let future_ver = version_pack(1, 0, 0);
         let h = build_header(
-            PLATFORM_ESP32, [0, 2, 0], future_ver, 0, 0,
-            1, PayloadType::Native, "", [0, 0, 0], dummy_crc(),
+            PLATFORM_ESP32,
+            [0, 2, 0],
+            future_ver,
+            0,
+            0,
+            1,
+            PayloadType::Native,
+            "",
+            [0, 0, 0],
+            dummy_crc(),
         );
         assert_eq!(
-            validate_header(&h, 0, PLATFORM_ESP32, FLASHPOINT_CURRENT, FLASHPOINT_LAST_BREAKING),
+            validate_header(
+                &h,
+                0,
+                PLATFORM_ESP32,
+                FLASHPOINT_CURRENT,
+                FLASHPOINT_LAST_BREAKING
+            ),
             Err(HeaderError::ApiIncompatible)
         );
     }
@@ -1114,11 +1362,25 @@ mod tests {
     #[test]
     fn validate_rejects_missing_features() {
         let h = build_header(
-            PLATFORM_ESP32, [0, 2, 0], FLASHPOINT_CURRENT, 0, FEAT_PSRAM,
-            1, PayloadType::Native, "", [0, 0, 0], dummy_crc(),
+            PLATFORM_ESP32,
+            [0, 2, 0],
+            FLASHPOINT_CURRENT,
+            0,
+            FEAT_PSRAM,
+            1,
+            PayloadType::Native,
+            "",
+            [0, 0, 0],
+            dummy_crc(),
         );
         assert_eq!(
-            validate_header(&h, 0, PLATFORM_ESP32, FLASHPOINT_CURRENT, FLASHPOINT_LAST_BREAKING),
+            validate_header(
+                &h,
+                0,
+                PLATFORM_ESP32,
+                FLASHPOINT_CURRENT,
+                FLASHPOINT_LAST_BREAKING
+            ),
             Err(HeaderError::MissingFeatures)
         );
     }
@@ -1126,10 +1388,25 @@ mod tests {
     #[test]
     fn validate_passes_with_features_met() {
         let h = build_header(
-            PLATFORM_ESP32, [0, 2, 0], FLASHPOINT_CURRENT, 0, FEAT_PSRAM,
-            1, PayloadType::Native, "", [0, 0, 0], dummy_crc(),
+            PLATFORM_ESP32,
+            [0, 2, 0],
+            FLASHPOINT_CURRENT,
+            0,
+            FEAT_PSRAM,
+            1,
+            PayloadType::Native,
+            "",
+            [0, 0, 0],
+            dummy_crc(),
         );
-        assert!(validate_header(&h, FEAT_PSRAM | FEAT_WIFI, PLATFORM_ESP32, FLASHPOINT_CURRENT, FLASHPOINT_LAST_BREAKING).is_ok());
+        assert!(validate_header(
+            &h,
+            FEAT_PSRAM | FEAT_WIFI,
+            PLATFORM_ESP32,
+            FLASHPOINT_CURRENT,
+            FLASHPOINT_LAST_BREAKING
+        )
+        .is_ok());
     }
 
     #[test]
@@ -1137,7 +1414,13 @@ mod tests {
         let mut h = make_valid_header();
         h[OFF_HEADER_END] = 0x00;
         assert_eq!(
-            validate_header(&h, 0, PLATFORM_ESP32, FLASHPOINT_CURRENT, FLASHPOINT_LAST_BREAKING),
+            validate_header(
+                &h,
+                0,
+                PLATFORM_ESP32,
+                FLASHPOINT_CURRENT,
+                FLASHPOINT_LAST_BREAKING
+            ),
             Err(HeaderError::BadTerminator)
         );
     }
@@ -1147,8 +1430,16 @@ mod tests {
         let payload = b"hello flashpoint";
         let checksum = crc32(payload);
         let h = build_header(
-            PLATFORM_ESP32, [0, 2, 0], FLASHPOINT_CURRENT, 0, 0,
-            payload.len() as u32, PayloadType::Native, "", [0, 0, 0], checksum,
+            PLATFORM_ESP32,
+            [0, 2, 0],
+            FLASHPOINT_CURRENT,
+            0,
+            0,
+            payload.len() as u32,
+            PayloadType::Native,
+            "",
+            [0, 0, 0],
+            checksum,
         );
         assert!(verify_crc32(&h, payload).is_ok());
     }
@@ -1158,10 +1449,21 @@ mod tests {
         let payload = b"hello flashpoint";
         let checksum = crc32(payload);
         let h = build_header(
-            PLATFORM_ESP32, [0, 2, 0], FLASHPOINT_CURRENT, 0, 0,
-            payload.len() as u32, PayloadType::Native, "", [0, 0, 0], checksum,
+            PLATFORM_ESP32,
+            [0, 2, 0],
+            FLASHPOINT_CURRENT,
+            0,
+            0,
+            payload.len() as u32,
+            PayloadType::Native,
+            "",
+            [0, 0, 0],
+            checksum,
         );
-        assert_eq!(verify_crc32(&h, b"hello flashpointX"), Err(HeaderError::BadChecksum));
+        assert_eq!(
+            verify_crc32(&h, b"hello flashpointX"),
+            Err(HeaderError::BadChecksum)
+        );
     }
 
     #[test]
@@ -1169,7 +1471,13 @@ mod tests {
         let mut h = make_valid_header();
         h[OFF_PAYLOAD_TYPE] = 0xFF;
         assert_eq!(
-            validate_header(&h, 0, PLATFORM_ESP32, FLASHPOINT_CURRENT, FLASHPOINT_LAST_BREAKING),
+            validate_header(
+                &h,
+                0,
+                PLATFORM_ESP32,
+                FLASHPOINT_CURRENT,
+                FLASHPOINT_LAST_BREAKING
+            ),
             Err(HeaderError::UnknownPayloadType)
         );
     }
@@ -1205,8 +1513,16 @@ mod tests {
         let long_id = "com.example.toolongidentifier.truncated";
         let payload = b"x";
         let h = build_header(
-            PLATFORM_ESP32, [0, 2, 0], FLASHPOINT_CURRENT, 0, 0,
-            1, PayloadType::Wasm32, long_id, [0, 0, 0], crc32(payload),
+            PLATFORM_ESP32,
+            [0, 2, 0],
+            FLASHPOINT_CURRENT,
+            0,
+            0,
+            1,
+            PayloadType::Wasm32,
+            long_id,
+            [0, 0, 0],
+            crc32(payload),
         );
         // Byte 23 (index from OFF_ROM_ID) must be null terminator
         assert_eq!(h[OFF_ROM_ID + 23], 0x00);

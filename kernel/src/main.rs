@@ -17,9 +17,7 @@ use common::{Platform, PLATFORM_PTR_ADDR};
 pub extern "C" fn entry() -> ! {
     // SAFETY: firmware wrote a valid &dyn Platform fat-pointer (2 words) to
     // PLATFORM_PTR_ADDR before jumping here.
-    let platform: &dyn Platform = unsafe {
-        &**(PLATFORM_PTR_ADDR as *const *const dyn Platform)
-    };
+    let platform: &dyn Platform = unsafe { &**(PLATFORM_PTR_ADDR as *const *const dyn Platform) };
     common::boot_main(platform)
 }
 
