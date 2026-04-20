@@ -6,6 +6,8 @@ edition.workspace = true
 [features]
 default = ["std"]
 std = []
+no-uart-recovery = []
+test-image = []
 
 [dependencies]
 crc  = { version = "3", default-features = false }

@@ -182,6 +182,42 @@ pub fn crc32(data: &[u8]) -> u32 {
     CRC.checksum(data)
 }
 
+// ─── Shared ESP-IDF UART helper ──────────────────────────────────────────────
+
+/// Non-blocking read of one byte from the serial console (stdin / UART0).
+///
+/// Uses POSIX `read()` on fd 0 with `O_NONBLOCK` through ESP-IDF's VFS layer.
+/// This works on every ESP-IDF platform (ESP32, ESP32-S3, QEMU, etc.) without
+/// needing `uart_driver_install` — the VFS console backend set up by `binstart`
+/// handles the routing to UART0 hardware.
+///
+/// On non-ESP-IDF targets (host tests, xtask) this always returns `None`.
+#[cfg(target_os = "espidf")]
+pub fn esp_idf_uart_poll_byte() -> Option<u8> {
+    extern "C" {
+        fn read(fd: i32, buf: *mut core::ffi::c_void, count: usize) -> isize;
+        fn fcntl(fd: i32, cmd: i32, arg: i32) -> i32;
+    }
+    // newlib / ESP-IDF constants
+    const F_GETFL: i32 = 3;
+    const F_SETFL: i32 = 4;
+    const O_NONBLOCK: i32 = 0x4000;
+
+    unsafe {
+        let flags = fcntl(0, F_GETFL, 0);
+        fcntl(0, F_SETFL, flags | O_NONBLOCK);
+        let mut byte: u8 = 0;
+        let n = read(0, &mut byte as *mut u8 as *mut core::ffi::c_void, 1);
+        fcntl(0, F_SETFL, flags); // restore original mode
+        if n == 1 { Some(byte) } else { None }
+    }
+}
+
+#[cfg(not(target_os = "espidf"))]
+pub fn esp_idf_uart_poll_byte() -> Option<u8> {
+    None
+}
+
 // ─── Header validation ───────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -383,6 +419,16 @@ pub trait Platform {
     // ── Input ─────────────────────────────────────────────────────────────────
     fn poll_event(&self) -> Option<Event> { None }
 
+    /// Non-blocking read of one byte from the serial/UART console.
+    /// Used by recovery mode for serial interaction alongside display/touch.
+    ///
+    /// On ESP-IDF targets the default reads from UART0 via `uart_read_bytes`.
+    /// HALs only need to override this if their UART setup differs.
+    /// On non-ESP-IDF (host tests, xtask) the default returns None.
+    fn uart_poll_byte(&self) -> Option<u8> {
+        esp_idf_uart_poll_byte()
+    }
+
     // ── LEDs ──────────────────────────────────────────────────────────────────
     /// Drive the onboard RGB LED. Values are 0=off, 255=full brightness.
     /// Default returns NotSupported (device has no RGB LED).
@@ -412,11 +458,56 @@ pub trait Platform {
 
 // ─── Hardware-agnostic kernel entry ─────────────────────────────────────────
 
+// TEMPORARY: embedded orientation test image (128×128 RGB565 LE, 32768 bytes)
+#[cfg(feature = "test-image")]
+const TEST_IMAGE: &[u8] = include_bytes!(env!("FLASHPOINT_TEST_IMAGE"));
+#[cfg(feature = "test-image")]
+const TEST_IMAGE_W: u16 = 128;
+#[cfg(feature = "test-image")]
+const TEST_IMAGE_H: u16 = 128;
+
+#[allow(unreachable_code)]
 pub fn boot_main(platform: &dyn Platform) -> ! {
     log::info!("[boot_main] starting");
     let w = platform.display_width();
     let h = platform.display_height();
     log::info!("[boot_main] display {}x{}", w, h);
+
+    // TEMPORARY: render test image centered on screen to verify orientation.
+    // The image is rendered exactly as stored — no rotation. If USB port is
+    // "up" physically and the heart appears upright, orientation is correct.
+    #[cfg(feature = "test-image")]
+    {
+        log::info!("[boot_main] rendering orientation test image ({}x{})", TEST_IMAGE_W, TEST_IMAGE_H);
+        display_fill(platform, 0x0000); // black background
+        let x_off = (w.saturating_sub(TEST_IMAGE_W)) / 2;
+        let y_off = (h.saturating_sub(TEST_IMAGE_H)) / 2;
+        let row_bytes = TEST_IMAGE_W as usize * 2;
+        let mut row_buf = [0u8; 640]; // max 320px wide * 2
+        for img_y in 0..TEST_IMAGE_H {
+            let screen_y = y_off + img_y;
+            if screen_y >= h { break; }
+            // Fill row with black
+            for i in (0..w as usize * 2).step_by(2) { row_buf[i] = 0; row_buf[i+1] = 0; }
+            // Copy image row into the correct x offset
+            let src_start = img_y as usize * row_bytes;
+            let src_end = src_start + row_bytes;
+            let dst_start = x_off as usize * 2;
+            let dst_end = dst_start + row_bytes;
+            if src_end <= TEST_IMAGE.len() && dst_end <= row_buf.len() {
+                row_buf[dst_start..dst_end].copy_from_slice(&TEST_IMAGE[src_start..src_end]);
+            }
+            platform.display_flush(&FrameBuffer { y: screen_y, data: &row_buf[..w as usize * 2] }).ok();
+        }
+        // Label the edges for orientation
+        display_text(platform, x_off, y_off.saturating_sub(10), "TOP (USB?)", 0xFFFF, 0x0000);
+        let bottom_y = y_off + TEST_IMAGE_H + 2;
+        if bottom_y + 8 <= h {
+            display_text(platform, x_off, bottom_y, "BOTTOM", 0xFFFF, 0x0000);
+        }
+        log::info!("[boot_main] test image rendered — looping forever");
+        loop { platform.sleep_ms(100); }
+    }
 
     display_fill(platform, 0x000F); // dark navy background
 
@@ -501,11 +592,14 @@ fn font_glyph(c: u8) -> [u8; 8] {
 pub fn draw_text_row(row: &mut [u8], x_start: usize, text: &str, char_row: u8, fg: u16, bg: u16) {
     let fg_b = fg.to_le_bytes();
     let bg_b = bg.to_le_bytes();
+    let row_px = row.len() / 2; // total pixels in this row
     for (ci, c) in text.bytes().enumerate() {
-        let glyph_row = font_glyph(c)[7 - char_row as usize];
+        let glyph_row = font_glyph(c)[char_row as usize];
         for bit in 0..8usize {
-            let px = (x_start + ci * 8 + bit) * 2;
-            if px + 1 >= row.len() { return; }
+            // Display scans right-to-left: mirror x so text reads correctly.
+            let logical_x = x_start + ci * 8 + bit;
+            let px = (row_px.saturating_sub(1 + logical_x)) * 2;
+            if px + 1 >= row.len() { continue; }
             let color = if (glyph_row >> (7 - bit)) & 1 != 0 { fg_b } else { bg_b };
             row[px] = color[0]; row[px + 1] = color[1];
         }
@@ -552,7 +646,8 @@ enum RecoveryItem {
     DisplayTest,
     TouchTest,
     LedTest,
-    WifiAp,   // only shown when FEAT_WIFI
+    WifiAp,    // only shown when FEAT_WIFI
+    UsbMount,  // only shown when FEAT_USB_OTG
     Reboot,
 }
 
@@ -564,6 +659,7 @@ impl RecoveryItem {
             RecoveryItem::TouchTest   => 0x07FF, // cyan
             RecoveryItem::LedTest     => 0xFFE0, // yellow
             RecoveryItem::WifiAp      => 0x001F, // blue
+            RecoveryItem::UsbMount    => 0x07E0, // green
             RecoveryItem::Reboot      => 0xF800, // red
         }
     }
@@ -581,38 +677,108 @@ impl RecoveryItem {
             RecoveryItem::TouchTest   => "TOUCH TEST",
             RecoveryItem::LedTest     => "LED TEST",
             RecoveryItem::WifiAp      => "WIFI AP RECOVERY",
+            RecoveryItem::UsbMount    => "USB MOUNT SD",
             RecoveryItem::Reboot      => "REBOOT",
         }
     }
+}
+
+// ─── UART recovery input ─────────────────────────────────────────────────────
+
+/// Map a UART byte to a navigation Event.
+/// Supports: w/k=Up, s/j=Down, enter/space=Select, q/ESC=Back.
+#[cfg(not(feature = "no-uart-recovery"))]
+fn uart_byte_to_event(byte: u8) -> Option<Event> {
+    match byte {
+        b'w' | b'W' | b'k' | b'K' => Some(Event::BtnUp),
+        b's' | b'S' | b'j' | b'J' => Some(Event::BtnDown),
+        b'a' | b'A' | b'h' | b'H' => Some(Event::BtnLeft),
+        b'd' | b'D' | b'l' | b'L' => Some(Event::BtnRight),
+        b'\r' | b'\n' | b' '      => Some(Event::BtnSelect),
+        b'q' | b'Q' | 0x1B        => Some(Event::BtnBack),
+        _ => None,
+    }
+}
+
+/// Check for a direct numeric selection (keys '1'-'9') from UART.
+/// Returns the 0-based item index, or None.
+#[cfg(not(feature = "no-uart-recovery"))]
+fn uart_byte_to_index(byte: u8, item_count: usize) -> Option<usize> {
+    if byte >= b'1' && byte <= b'9' {
+        let idx = (byte - b'1') as usize;
+        if idx < item_count { return Some(idx); }
+    }
+    None
+}
+
+/// Unified input: polls hardware events first, then UART.
+/// Returns (Option<Event>, Option<raw_uart_byte>).
+#[cfg(not(feature = "no-uart-recovery"))]
+fn poll_recovery_input(platform: &dyn Platform) -> (Option<Event>, Option<u8>) {
+    if let Some(e) = platform.poll_event() {
+        return (Some(e), None);
+    }
+    if let Some(byte) = platform.uart_poll_byte() {
+        return (uart_byte_to_event(byte), Some(byte));
+    }
+    (None, None)
+}
+
+/// Simple any-input check: returns true if hardware or UART produced any event.
+/// Used by recovery actions that just need "wait for any key/touch".
+fn any_recovery_input(platform: &dyn Platform) -> bool {
+    if platform.poll_event().is_some() { return true; }
+    #[cfg(not(feature = "no-uart-recovery"))]
+    if platform.uart_poll_byte().is_some() { return true; }
+    false
+}
+
+/// Log the recovery menu over UART so serial users can see the options.
+#[cfg(not(feature = "no-uart-recovery"))]
+fn uart_log_menu(items: &[RecoveryItem], selected: usize) {
+    log::info!("[recovery] ─── RECOVERY MENU ───");
+    for (i, item) in items.iter().enumerate() {
+        let marker = if i == selected { ">>" } else { "  " };
+        log::info!("[recovery] {} [{}] {}", marker, i + 1, item.label());
+    }
+    log::info!("[recovery] Navigate: w/s or k/j | Select: Enter/Space | Direct: 1-{}", items.len());
 }
 
 /// Hardware-agnostic recovery menu.
 ///
 /// - If the platform has a display (`FEAT_DISP_TFT`), renders a colour-band
 ///   menu and navigates with touch/button events.
-/// - Otherwise falls back to the serial console: logs each test result and
-///   reboots when done.
+/// - Otherwise falls back to the serial console: interactive UART menu.
+///
+/// UART console access is always active (both display and console paths)
+/// unless the `no-uart-recovery` build feature is set.
 pub fn recovery_main(platform: &dyn Platform) -> ! {
     log::info!("[recovery] entering recovery mode");
 
     let has_display = platform.features() & FEAT_DISP_TFT != 0;
     let has_wifi    = platform.features() & FEAT_WIFI     != 0;
+    let has_usb_otg = platform.features() & FEAT_USB_OTG  != 0;
 
     if has_display {
-        recovery_display_menu(platform, has_wifi)
+        recovery_display_menu(platform, has_wifi, has_usb_otg)
     } else {
-        recovery_console(platform, has_wifi)
+        recovery_console(platform, has_wifi, has_usb_otg)
     }
 }
 
-fn recovery_display_menu(platform: &dyn Platform, has_wifi: bool) -> ! {
-    use Vec as ItemVec;
-    let mut items: ItemVec<RecoveryItem> = Vec::new();
+fn build_recovery_items(has_wifi: bool, has_usb_otg: bool) -> Vec<RecoveryItem> {
+    let mut items: Vec<RecoveryItem> = Vec::new();
     items.push(RecoveryItem::DisplayTest);
     items.push(RecoveryItem::TouchTest);
     items.push(RecoveryItem::LedTest);
     if has_wifi { items.push(RecoveryItem::WifiAp); }
+    if has_usb_otg { items.push(RecoveryItem::UsbMount); }
     items.push(RecoveryItem::Reboot);
+    items
+}
+
+fn recovery_display_menu(platform: &dyn Platform, has_wifi: bool, has_usb_otg: bool) -> ! {
+    let items = build_recovery_items(has_wifi, has_usb_otg);
 
     let mut selected: usize = 0;
     let w = platform.display_width();
@@ -620,10 +786,50 @@ fn recovery_display_menu(platform: &dyn Platform, has_wifi: bool) -> ! {
     let n = items.len() as u16;
     let band = h / n;
 
-    // Draw initial menu
+    // Draw initial menu + log over UART
     recovery_draw_menu(platform, &items, selected, w, h, band);
+    #[cfg(not(feature = "no-uart-recovery"))]
+    uart_log_menu(&items, selected);
 
     loop {
+        // Unified input: hardware events + UART (unless no-uart-recovery)
+        #[cfg(not(feature = "no-uart-recovery"))]
+        {
+            let (event, raw_byte) = poll_recovery_input(platform);
+            // Direct number key selection
+            if let Some(byte) = raw_byte {
+                if let Some(idx) = uart_byte_to_index(byte, items.len()) {
+                    selected = idx;
+                    recovery_draw_menu(platform, &items, selected, w, h, band);
+                    log::info!("[recovery] running: {}", items[selected].label());
+                    recovery_run_item(platform, items[selected]);
+                    recovery_draw_menu(platform, &items, selected, w, h, band);
+                    uart_log_menu(&items, selected);
+                    platform.sleep_ms(50);
+                    continue;
+                }
+            }
+            match event {
+                Some(Event::BtnUp) => {
+                    if selected > 0 { selected -= 1; }
+                    recovery_draw_menu(platform, &items, selected, w, h, band);
+                    uart_log_menu(&items, selected);
+                }
+                Some(Event::BtnDown) => {
+                    if selected + 1 < items.len() { selected += 1; }
+                    recovery_draw_menu(platform, &items, selected, w, h, band);
+                    uart_log_menu(&items, selected);
+                }
+                Some(Event::BtnSelect) => {
+                    log::info!("[recovery] running: {}", items[selected].label());
+                    recovery_run_item(platform, items[selected]);
+                    recovery_draw_menu(platform, &items, selected, w, h, band);
+                    uart_log_menu(&items, selected);
+                }
+                _ => {}
+            }
+        }
+        #[cfg(feature = "no-uart-recovery")]
         match platform.poll_event() {
             Some(Event::BtnUp) => {
                 if selected > 0 { selected -= 1; }
@@ -635,7 +841,6 @@ fn recovery_display_menu(platform: &dyn Platform, has_wifi: bool) -> ! {
             }
             Some(Event::BtnSelect) => {
                 recovery_run_item(platform, items[selected]);
-                // Redraw after running item
                 recovery_draw_menu(platform, &items, selected, w, h, band);
             }
             _ => {}
@@ -692,7 +897,11 @@ fn recovery_run_item(platform: &dyn Platform, item: RecoveryItem) {
                 for i in (0..w as usize * 2).step_by(2) { row[i] = b[0]; row[i+1] = b[1]; }
                 platform.display_flush(&FrameBuffer { y, data: &row[..w as usize * 2] }).ok();
             }
-            platform.sleep_ms(2000);
+            log::info!("[recovery] display test — any input to exit");
+            loop {
+                if any_recovery_input(platform) { break; }
+                platform.sleep_ms(50);
+            }
         }
         RecoveryItem::TouchTest => {
             log::info!("[recovery] touch test — press BtnSelect to exit");
@@ -736,6 +945,13 @@ fn recovery_run_item(platform: &dyn Platform, item: RecoveryItem) {
             // Future: platform.wifi_start_ap("flashpoint-recovery", "") + HTTP file server
             platform.sleep_ms(1000);
         }
+        RecoveryItem::UsbMount => {
+            log::info!("[recovery] USB SD mount — not yet implemented");
+            // Future: expose SD card as USB mass storage device so the user can
+            // transfer ROMs to/from the SD card without removing it physically.
+            // Boot-ROMs may implement their own version of this via host API.
+            platform.sleep_ms(1000);
+        }
         RecoveryItem::Reboot => {
             log::info!("[recovery] rebooting...");
             platform.sleep_ms(500);
@@ -744,24 +960,70 @@ fn recovery_run_item(platform: &dyn Platform, item: RecoveryItem) {
     }
 }
 
-fn recovery_console(platform: &dyn Platform, _has_wifi: bool) -> ! {
+fn recovery_console(platform: &dyn Platform, has_wifi: bool, has_usb_otg: bool) -> ! {
     log::info!("[recovery] ---- RECOVERY MODE (console) ----");
-    log::info!("[recovery] running display test...");
-    platform.display_clear().ok();
-    platform.sleep_ms(500);
 
-    log::info!("[recovery] running LED test...");
-    for (r,g,b) in [(255u8,0,0),(0,255,0),(0,0,255),(255,255,255),(0u8,0,0)] {
-        if platform.led_rgb(r, g, b).is_err() {
-            log::warn!("[recovery] LED not available");
-            break;
+    #[cfg(not(feature = "no-uart-recovery"))]
+    {
+        // Interactive UART console: present menu, accept commands
+        let items = build_recovery_items(has_wifi, has_usb_otg);
+        let mut selected: usize = 0;
+        uart_log_menu(&items, selected);
+
+        loop {
+            let (event, raw_byte) = poll_recovery_input(platform);
+            // Direct number key selection
+            if let Some(byte) = raw_byte {
+                if let Some(idx) = uart_byte_to_index(byte, items.len()) {
+                    selected = idx;
+                    log::info!("[recovery] running: {}", items[selected].label());
+                    recovery_run_item(platform, items[selected]);
+                    uart_log_menu(&items, selected);
+                    platform.sleep_ms(50);
+                    continue;
+                }
+            }
+            match event {
+                Some(Event::BtnUp) => {
+                    if selected > 0 { selected -= 1; }
+                    uart_log_menu(&items, selected);
+                }
+                Some(Event::BtnDown) => {
+                    if selected + 1 < items.len() { selected += 1; }
+                    uart_log_menu(&items, selected);
+                }
+                Some(Event::BtnSelect) => {
+                    log::info!("[recovery] running: {}", items[selected].label());
+                    recovery_run_item(platform, items[selected]);
+                    uart_log_menu(&items, selected);
+                }
+                _ => {}
+            }
+            platform.sleep_ms(50);
         }
-        platform.sleep_ms(400);
     }
 
-    log::info!("[recovery] tests complete — rebooting in 3s");
-    platform.sleep_ms(3000);
-    platform.reboot();
+    // Fallback: no UART recovery — run tests automatically and reboot
+    #[cfg(feature = "no-uart-recovery")]
+    {
+        let _ = (has_wifi, has_usb_otg);
+        log::info!("[recovery] running display test...");
+        platform.display_clear().ok();
+        platform.sleep_ms(500);
+
+        log::info!("[recovery] running LED test...");
+        for (r,g,b) in [(255u8,0,0),(0,255,0),(0,0,255),(255,255,255),(0u8,0,0)] {
+            if platform.led_rgb(r, g, b).is_err() {
+                log::warn!("[recovery] LED not available");
+                break;
+            }
+            platform.sleep_ms(400);
+        }
+
+        log::info!("[recovery] tests complete — rebooting in 3s");
+        platform.sleep_ms(3000);
+        platform.reboot();
+    }
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────────────

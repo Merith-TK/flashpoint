@@ -41,5 +41,28 @@
 
 ---
 
+## Recovery Mode Refactor — UART Console Access
+
+### Architecture
+- Core recovery logic lives in `common/src/lib.rs` (hardware-agnostic)
+- HAL crates provide `uart_poll_byte()` for serial input on their UART
+- HAL crates provide activation method (CYD: BOOT button, QEMU: no hardware trigger)
+- All recovery paths (display + console) accept UART commands unless `no-uart-recovery` feature
+
+### Changes
+- [x] Add `uart_poll_byte()` to Platform trait in common
+- [x] Add `no-uart-recovery` feature to common/Cargo.toml
+- [x] Add unified `poll_recovery_input()` that checks both hardware events + UART
+- [x] Add UART-to-Event mapping (w/s=up/down, enter=select, number keys=direct)
+- [x] Refactor `recovery_display_menu` to use unified input + log menu state
+- [x] Refactor `recovery_console` to be interactive UART menu
+- [x] Add USB_MOUNT recovery menu item (FEAT_USB_OTG gated, stub)
+- [x] Implement `uart_poll_byte` in hal-cyd (idf::uart_read_bytes)
+- [x] Implement `uart_poll_byte` in hal-qemu (idf::uart_read_bytes)
+- [x] Update docs/flashpoint/recovery-mode.md
+- [x] Run `cargo test -p common` to verify
+
+---
+
 ## Phase 1+: Kernel, Runtime, Shell — NOT STARTED
 Plans exist in `.copilot/plans/07` through `15`.
