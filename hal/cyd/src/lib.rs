@@ -37,7 +37,7 @@ use display_interface_spi::SPIInterface;
 use embedded_graphics_core::{draw_target::DrawTarget, pixelcolor::{raw::RawU16, Rgb565}};
 use mipidsi::{
     models::ILI9341Rgb565,
-    options::{ColorOrder, Orientation, Rotation},
+    options::{ColorOrder, Orientation},
     Builder,
 };
 use embedded_sdmmc::{BlockCount, BlockDevice, BlockIdx, SdCard};
@@ -197,12 +197,13 @@ fn nvs_erase(ns: &str, key: &str) -> Result<(), PlatformError> {
 // ─── CydPlatform ─────────────────────────────────────────────────────────────
 
 pub struct CydPlatform {
-    display: Mutex<LcdDisplay>,
-    touch:   Mutex<TouchBitbang>,
-    sd_card: SdCardDev,       // SdCard uses RefCell internally; safe via &self
-    led_r:   Mutex<OutPin>,
-    led_g:   Mutex<OutPin>,
-    led_b:   Mutex<OutPin>,
+    display:   Mutex<LcdDisplay>,
+    backlight: Mutex<OutPin>,
+    touch:     Mutex<TouchBitbang>,
+    sd_card:   SdCardDev,     // SdCard uses RefCell internally; safe via &self
+    led_r:     Mutex<OutPin>,
+    led_g:     Mutex<OutPin>,
+    led_b:     Mutex<OutPin>,
 }
 
 // SAFETY: CydPlatform is used from a single FreeRTOS task in the boot-rom.
@@ -254,9 +255,9 @@ impl CydPlatform {
         let di = SPIInterface::new(lcd_device, lcd_dc);
         let mut delay = FreeRtos;
         let display = Builder::new(ILI9341Rgb565, di)
-            .display_size(320, 240)
+            .display_size(240, 320)
             .color_order(ColorOrder::Bgr)
-            .orientation(Orientation::new().rotate(Rotation::Deg90))
+            .orientation(Orientation::default())
             .init(&mut delay)
             .expect("ILI9341 init failed");
 
@@ -357,8 +358,9 @@ impl CydPlatform {
         led_b.set_high().ok();
 
         CydPlatform {
-            display: Mutex::new(display),
-            touch:   Mutex::new(touch),
+            display:   Mutex::new(display),
+            backlight: Mutex::new(backlight),
+            touch:     Mutex::new(touch),
             sd_card,
             led_r: Mutex::new(led_r),
             led_g: Mutex::new(led_g),
@@ -378,7 +380,7 @@ impl Platform for CydPlatform {
             Rgb565::from(RawU16::new(u16::from_le_bytes([c[0], c[1]])))
         });
         display
-            .set_pixels(0, buf.y, 319, buf.y, pixels)
+            .set_pixels(0, buf.y, self.display_width() - 1, buf.y, pixels)
             .map_err(|_| PlatformError::DisplayError)
     }
 
@@ -389,8 +391,8 @@ impl Platform for CydPlatform {
             .map_err(|_| PlatformError::DisplayError)
     }
 
-    fn display_width(&self)  -> u16 { 320 }
-    fn display_height(&self) -> u16 { 240 }
+    fn display_width(&self)  -> u16 { 240 }
+    fn display_height(&self) -> u16 { 320 }
 
     // ── Input (XPT2046 via bit-bang SPI) ─────────────────────────────────────
 

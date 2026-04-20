@@ -157,8 +157,8 @@ fn cyd_boot() -> ! {
     }
 
     if BOOTROM_SIZE == 0 {
-        log::error!("[stage1] no internal boot ROM — halting");
-        hw::error_led(hw::ErrorCode::NoBoot);
+        log::warn!("[stage1] no internal boot ROM — falling back to boot_main");
+        common::boot_main(&platform);
     }
 
     log::info!("[stage1] reading internal ROM at offset=0x{:08X} size=0x{:08X}",

@@ -10,6 +10,7 @@ emulator/
 .idea/
 .vscode/
 *.iml
+/tmp
 
 # Project-specific
 HANDOFF.md

@@ -413,10 +413,13 @@ pub trait Platform {
 // ─── Hardware-agnostic kernel entry ─────────────────────────────────────────
 
 pub fn boot_main(platform: &dyn Platform) -> ! {
+    log::info!("[boot_main] clearing display");
     platform.display_clear().ok();
+    log::info!("[boot_main] display cleared");
 
     let w = platform.display_width();
     let h = platform.display_height();
+    log::info!("[boot_main] display {}x{}", w, h);
     let mut row = [0u8; 640];
 
     for y in 0..h {
@@ -425,8 +428,12 @@ pub fn boot_main(platform: &dyn Platform) -> ! {
             y,
             data: &row[..w as usize * 2],
         }).ok();
+        if y % 60 == 0 {
+            log::info!("[boot_main] rendered row {}/{}", y, h);
+        }
     }
 
+    log::info!("[boot_main] render complete — entering event loop");
     loop {
         if let Some(Event::BtnSelect) = platform.poll_event() {
             platform.reboot();
@@ -436,9 +443,15 @@ pub fn boot_main(platform: &dyn Platform) -> ! {
 }
 
 fn render_row(y: u16, h: u16, w: u16, row: &mut [u8]) {
-    let text_top    = h * 2 / 5;
-    let text_bottom = h * 3 / 5;
-    let color: u16 = if y >= text_top && y < text_bottom { 0xFFFF } else { 0x000F };
+    // Divide screen into thirds: top=red, middle=white, bottom=blue
+    let third = h / 3;
+    let color: u16 = if y < third {
+        0xF800 // red
+    } else if y < third * 2 {
+        0xFFFF // white
+    } else {
+        0x001F // bright blue
+    };
     let bytes = color.to_le_bytes();
     for i in (0..w as usize * 2).step_by(2) {
         row[i]     = bytes[0];
