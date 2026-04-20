@@ -476,6 +476,16 @@ pub trait Platform {
         esp_idf_uart_poll_byte()
     }
 
+    /// Non-blocking raw touch sample in device ADC space (0–4095, 0–4095).
+    /// Returns `Some((raw_x, raw_y))` while the screen is being touched.
+    /// Only meaningful on `FEAT_DISP_TFT | FEAT_INPUT_TOUCH` devices.
+    /// The coordinate axes match the XPT2046 ADC channels; no screen-space
+    /// calibration is applied — use the values for position deltas and debug
+    /// displays rather than pixel-perfect mapping.
+    fn poll_touch_xy(&self) -> Option<(u16, u16)> {
+        None
+    }
+
     // ── LEDs ──────────────────────────────────────────────────────────────────
     /// Drive the onboard RGB LED. Values are 0=off, 255=full brightness.
     /// Default returns NotSupported (device has no RGB LED).
@@ -760,7 +770,7 @@ pub fn display_text(platform: &dyn Platform, x: u16, y: u16, text: &str, fg: u16
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum RecoveryItem {
     DisplayTest,
-    TouchTest,
+    TouchCalib,
     LedTest,
     WifiAp,   // only shown when FEAT_WIFI
     UsbMount, // only shown when FEAT_USB_OTG
@@ -772,7 +782,7 @@ impl RecoveryItem {
     fn color_active(self) -> u16 {
         match self {
             RecoveryItem::DisplayTest => 0xF81F, // magenta
-            RecoveryItem::TouchTest => 0x07FF,   // cyan
+            RecoveryItem::TouchCalib => 0x07FF,  // cyan
             RecoveryItem::LedTest => 0xFFE0,     // yellow
             RecoveryItem::WifiAp => 0x001F,      // blue
             RecoveryItem::UsbMount => 0x07E0,    // green
@@ -790,7 +800,7 @@ impl RecoveryItem {
     fn label(self) -> &'static str {
         match self {
             RecoveryItem::DisplayTest => "DISPLAY TEST",
-            RecoveryItem::TouchTest => "TOUCH TEST",
+            RecoveryItem::TouchCalib => "TOUCH CALIBRATION",
             RecoveryItem::LedTest => "LED TEST",
             RecoveryItem::WifiAp => "WIFI AP RECOVERY",
             RecoveryItem::UsbMount => "USB MOUNT SD",
@@ -891,10 +901,12 @@ pub fn recovery_main(platform: &dyn Platform) -> ! {
     }
 }
 
-fn build_recovery_items(has_wifi: bool, has_usb_otg: bool) -> Vec<RecoveryItem> {
+fn build_recovery_items(has_display: bool, has_wifi: bool, has_usb_otg: bool) -> Vec<RecoveryItem> {
     let mut items: Vec<RecoveryItem> = Vec::new();
-    items.push(RecoveryItem::DisplayTest);
-    items.push(RecoveryItem::TouchTest);
+    if has_display {
+        items.push(RecoveryItem::DisplayTest);
+        items.push(RecoveryItem::TouchCalib);
+    }
     items.push(RecoveryItem::LedTest);
     if has_wifi {
         items.push(RecoveryItem::WifiAp);
@@ -907,7 +919,7 @@ fn build_recovery_items(has_wifi: bool, has_usb_otg: bool) -> Vec<RecoveryItem> 
 }
 
 fn recovery_display_menu(platform: &dyn Platform, has_wifi: bool, has_usb_otg: bool) -> ! {
-    let items = build_recovery_items(has_wifi, has_usb_otg);
+    let items = build_recovery_items(true, has_wifi, has_usb_otg);
 
     let mut selected: usize = 0;
     let w = platform.display_width();
@@ -1030,6 +1042,93 @@ fn recovery_draw_menu(
     }
 }
 
+/// Render a touch calibration target screen: black background with a cyan crosshair
+/// at pixel (tx, ty) and the instruction label centred near the top.
+fn recovery_cal_render(platform: &dyn Platform, tx: u16, ty: u16, label: &str) {
+    let w = platform.display_width();
+    let h = platform.display_height();
+    let mut row = [0u8; 640];
+    let b_bg = (0x0000u16).to_le_bytes();
+    let b_ch = (0x07FFu16).to_le_bytes(); // cyan crosshair
+    for y in 0..h {
+        for i in (0..w as usize * 2).step_by(2) {
+            row[i] = b_bg[0];
+            row[i + 1] = b_bg[1];
+        }
+        if y == ty {
+            for i in (0..w as usize * 2).step_by(2) {
+                row[i] = b_ch[0];
+                row[i + 1] = b_ch[1];
+            }
+        }
+        let px = tx as usize * 2;
+        if px + 1 < w as usize * 2 {
+            row[px] = b_ch[0];
+            row[px + 1] = b_ch[1];
+        }
+        if y >= 4 && y < 12 {
+            let lx = text_x_center(w, label);
+            draw_text_row(&mut row[..w as usize * 2], lx, label, (y - 4) as u8, 0xFFFF, 0x0000);
+        }
+        platform
+            .display_flush(&FrameBuffer {
+                y,
+                data: &row[..w as usize * 2],
+            })
+            .ok();
+    }
+}
+
+/// Collect a stable touch sample: waits for 10 consecutive `poll_touch_xy()` readings
+/// (50 ms apart) and returns their average. Resets the counter if the finger lifts.
+/// Wait until the screen reports no touch for at least two consecutive polls.
+/// Call this before `recovery_cal_sample` to flush any residual touch from
+/// the previous menu tap or calibration step.
+fn wait_for_no_touch(platform: &dyn Platform) {
+    let mut clear = 0u32;
+    while clear < 2 {
+        if platform.poll_touch_xy().is_none() {
+            clear += 1;
+        } else {
+            clear = 0;
+        }
+        platform.sleep_ms(50);
+    }
+}
+
+fn recovery_cal_sample(platform: &dyn Platform) -> (u16, u16) {
+    // Ensure any previous touch (e.g. menu selection tap) is fully lifted
+    // before we start accumulating calibration samples.
+    wait_for_no_touch(platform);
+
+    const NEEDED: u32 = 10;
+    let mut sum_x = 0u32;
+    let mut sum_y = 0u32;
+    let mut count = 0u32;
+    loop {
+        match platform.poll_touch_xy() {
+            Some((x, y)) => {
+                sum_x += x as u32;
+                sum_y += y as u32;
+                count += 1;
+                log::info!("[cal] sample {}/{}: ({}, {})", count, NEEDED, x, y);
+                if count >= NEEDED {
+                    return ((sum_x / NEEDED) as u16, (sum_y / NEEDED) as u16);
+                }
+            }
+            None => {
+                if count > 0 {
+                    log::warn!("[cal] lifted early ({} samples), retrying", count);
+                    sum_x = 0;
+                    sum_y = 0;
+                    count = 0;
+                }
+            }
+        }
+        platform.sleep_ms(50);
+    }
+}
+
 fn recovery_run_item(platform: &dyn Platform, item: RecoveryItem) {
     match item {
         RecoveryItem::DisplayTest => {
@@ -1062,37 +1161,70 @@ fn recovery_run_item(platform: &dyn Platform, item: RecoveryItem) {
                 platform.sleep_ms(50);
             }
         }
-        RecoveryItem::TouchTest => {
-            log::info!("[recovery] touch test — press BtnSelect to exit");
+        RecoveryItem::TouchCalib => {
+            // Two-point touch calibration wizard (TFT devices only).
+            // Guides the user to tap a crosshair at the top-left then bottom-right
+            // corners of the screen.  Raw XPT2046 ADC values at each tap are
+            // averaged over 10 samples, then stored to NVS so the HAL can apply
+            // accurate proportional zone mapping on the next boot.
+            //
+            // NVS layout — ns: "fp-hal", key: "touch-cal", 8 bytes:
+            //   [x_min_lo, x_min_hi, x_max_lo, x_max_hi,
+            //    y_min_lo, y_min_hi, y_max_lo, y_max_hi]
+            log::info!("[recovery] entering touch calibration wizard");
             let w = platform.display_width();
             let h = platform.display_height();
-            let mut row = [0u8; 640];
-            let mut deadline = 5000u32;
-            while deadline > 0 {
-                let color: u16 = match platform.poll_event() {
-                    Some(Event::BtnUp) => 0x07FF,
-                    Some(Event::BtnDown) => 0xF800,
-                    Some(Event::BtnLeft) => 0x001F,
-                    Some(Event::BtnRight) => 0x07E0,
-                    Some(Event::BtnSelect) => break,
-                    _ => 0x2104, // dark grey
-                };
-                let b = color.to_le_bytes();
-                for y in 0..h {
-                    for i in (0..w as usize * 2).step_by(2) {
-                        row[i] = b[0];
-                        row[i + 1] = b[1];
-                    }
-                    platform
-                        .display_flush(&FrameBuffer {
-                            y,
-                            data: &row[..w as usize * 2],
-                        })
-                        .ok();
+
+            // ── Step 1: tap top-left ──────────────────────────────────────────
+            log::info!("[cal] step 1/2 — tap the TOP-LEFT crosshair and hold");
+            recovery_cal_render(platform, 20, 20, "TAP TOP LEFT");
+            let (x1, y1) = recovery_cal_sample(platform);
+            log::info!("[cal] top-left averaged raw: ({}, {})", x1, y1);
+            display_fill(platform, 0x07E0); // green flash = confirmed
+            platform.sleep_ms(300);
+
+            // ── Step 2: tap bottom-right ──────────────────────────────────────
+            let br_x = w.saturating_sub(21);
+            let br_y = h.saturating_sub(21);
+            log::info!("[cal] step 2/2 — tap the BOTTOM-RIGHT crosshair and hold");
+            recovery_cal_render(platform, br_x, br_y, "TAP BOTTOM RIGHT");
+            let (x2, y2) = recovery_cal_sample(platform);
+            log::info!("[cal] bottom-right averaged raw: ({}, {})", x2, y2);
+            display_fill(platform, 0x07E0);
+            platform.sleep_ms(300);
+
+            // ── Compute calibration bounds ─────────────────────────────────────
+            let x_min = x1.min(x2);
+            let x_max = x1.max(x2);
+            let y_min = y1.min(y2);
+            let y_max = y1.max(y2);
+            log::info!(
+                "[cal] calibration bounds: x {}..{}, y {}..{}",
+                x_min, x_max, y_min, y_max
+            );
+
+            // ── Encode and write to NVS ────────────────────────────────────────
+            let mut cal_bytes = [0u8; 8];
+            cal_bytes[0..2].copy_from_slice(&x_min.to_le_bytes());
+            cal_bytes[2..4].copy_from_slice(&x_max.to_le_bytes());
+            cal_bytes[4..6].copy_from_slice(&y_min.to_le_bytes());
+            cal_bytes[6..8].copy_from_slice(&y_max.to_le_bytes());
+
+            display_fill(platform, 0x0000);
+            let status = match platform.nvs_write("fp-hal", "touch-cal", &cal_bytes) {
+                Ok(()) => {
+                    log::info!("[cal] calibration saved to NVS — rebooting to apply");
+                    "SAVED"
                 }
-                platform.sleep_ms(50);
-                deadline = deadline.saturating_sub(50);
-            }
+                Err(e) => {
+                    log::error!("[cal] NVS write failed: {:?}", e);
+                    "NVS FAILED"
+                }
+            };
+            let sx = text_x_center(w, status) as u16;
+            display_text(platform, sx, h / 2, status, 0xFFFF, 0x0000);
+            platform.sleep_ms(1500);
+            platform.reboot();
         }
         RecoveryItem::LedTest => {
             log::info!("[recovery] running LED test");
@@ -1138,7 +1270,7 @@ fn recovery_console(platform: &dyn Platform, has_wifi: bool, has_usb_otg: bool) 
     #[cfg(not(feature = "no-uart-recovery"))]
     {
         // Interactive UART console: present menu, accept commands
-        let items = build_recovery_items(has_wifi, has_usb_otg);
+        let items = build_recovery_items(false, has_wifi, has_usb_otg);
         let mut selected: usize = 0;
         uart_log_menu(&items, selected);
 

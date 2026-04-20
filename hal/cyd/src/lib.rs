@@ -64,6 +64,48 @@ type SdCardDev = SdCard<SdSpiDevice, SdCsPin, FreeRtos>;
 type OutPin = PinDriver<'static, Output>;
 type InPin = PinDriver<'static, Input>;
 
+// ─── Touch calibration data ──────────────────────────────────────────────────
+
+/// Calibration data for the XPT2046 touch controller.
+///
+/// Stored in NVS namespace `"fp-hal"`, key `"touch-cal"`, 8 bytes:
+/// `[x_min_lo, x_min_hi, x_max_lo, x_max_hi, y_min_lo, y_min_hi, y_max_lo, y_max_hi]`.
+///
+/// Defaults to the full 12-bit ADC range; proportional zone math with these defaults
+/// reproduces the prior hardcoded thresholds (≈1000 / 1200 / 2800 / 3100).
+#[derive(Clone, Copy)]
+struct TouchCal {
+    x_min: u16,
+    x_max: u16,
+    y_min: u16,
+    y_max: u16,
+}
+
+impl Default for TouchCal {
+    fn default() -> Self {
+        TouchCal {
+            x_min: 0,
+            x_max: 4095,
+            y_min: 0,
+            y_max: 4095,
+        }
+    }
+}
+
+impl TouchCal {
+    fn from_bytes(b: &[u8]) -> Option<Self> {
+        if b.len() < 8 {
+            return None;
+        }
+        Some(TouchCal {
+            x_min: u16::from_le_bytes([b[0], b[1]]),
+            x_max: u16::from_le_bytes([b[2], b[3]]),
+            y_min: u16::from_le_bytes([b[4], b[5]]),
+            y_max: u16::from_le_bytes([b[6], b[7]]),
+        })
+    }
+}
+
 // ─── Internal touch state ─────────────────────────────────────────────────────
 
 struct TouchBitbang {
@@ -74,6 +116,7 @@ struct TouchBitbang {
     irq: InPin,
     last_event: Option<Event>,
     debounce_ms: u32,
+    cal: TouchCal,
 }
 
 impl TouchBitbang {
@@ -111,25 +154,28 @@ impl TouchBitbang {
         Some((x, y))
     }
 
-    /// Map raw XPT2046 values to an Event using zone thresholds.
+    /// Map raw XPT2046 values to an Event.
     ///
-    /// CYD screen is 320×240 in landscape. XPT2046 raw range is 0–4095.
-    /// Calibration constants are conservative defaults; NVS calibration can refine them.
-    fn map_to_event(raw_x: u16, raw_y: u16) -> Option<Event> {
-        // Y-axis zones (raw_y low = top of screen)
-        const Y_UP_MAX: u16 = 1000;
-        const Y_DOWN_MIN: u16 = 3100;
-        // X-axis zones for middle band
-        const X_LEFT_MAX: u16 = 1200;
-        const X_RIGHT_MIN: u16 = 2800;
+    /// Zone boundaries are proportional to the calibrated range:
+    /// each axis is divided into three bands — the outer quarters trigger the
+    /// directional events (Up/Down/Left/Right) and the centre half triggers
+    /// BtnSelect.  With default cal (0–4095) the boundaries are ≈1023/3071,
+    /// matching the prior hardcoded thresholds.
+    fn map_to_event(raw_x: u16, raw_y: u16, cal: &TouchCal) -> Option<Event> {
+        let xr = (cal.x_max as u32).saturating_sub(cal.x_min as u32);
+        let yr = (cal.y_max as u32).saturating_sub(cal.y_min as u32);
+        let x_lo = cal.x_min.saturating_add((xr / 4) as u16);
+        let x_hi = cal.x_max.saturating_sub((xr / 4) as u16);
+        let y_lo = cal.y_min.saturating_add((yr / 4) as u16);
+        let y_hi = cal.y_max.saturating_sub((yr / 4) as u16);
 
-        if raw_y < Y_UP_MAX {
+        if raw_y < y_lo {
             Some(Event::BtnUp)
-        } else if raw_y > Y_DOWN_MIN {
+        } else if raw_y > y_hi {
             Some(Event::BtnDown)
-        } else if raw_x < X_LEFT_MAX {
+        } else if raw_x < x_lo {
             Some(Event::BtnLeft)
-        } else if raw_x > X_RIGHT_MIN {
+        } else if raw_x > x_hi {
             Some(Event::BtnRight)
         } else {
             Some(Event::BtnSelect)
@@ -333,6 +379,16 @@ impl CydPlatform {
             )
         };
 
+        // Load touch calibration from NVS (written by recovery TOUCH CALIBRATION).
+        // Falls back to full-range defaults if no calibration has been saved yet.
+        let touch_cal = match nvs_get("fp-hal", "touch-cal") {
+            Ok(bytes) => TouchCal::from_bytes(&bytes).unwrap_or_default(),
+            Err(_) => {
+                log::info!("[hal-cyd] no touch calibration in NVS, using defaults");
+                TouchCal::default()
+            }
+        };
+
         let touch = TouchBitbang {
             clk: touch_clk,
             mosi: touch_mosi,
@@ -341,6 +397,7 @@ impl CydPlatform {
             irq: touch_irq,
             last_event: None,
             debounce_ms: 0,
+            cal: touch_cal,
         };
 
         // ── SD card (VSPI / SPI3) ──────────────────────────────────────────────
@@ -445,7 +502,7 @@ impl Platform for CydPlatform {
                 None
             }
             Some((x, y)) => {
-                let event = TouchBitbang::map_to_event(x, y);
+                let event = TouchBitbang::map_to_event(x, y, &touch.cal);
                 if event == touch.last_event {
                     // Still same zone — only emit once per touch (debounce)
                     None
@@ -456,6 +513,10 @@ impl Platform for CydPlatform {
                 }
             }
         }
+    }
+
+    fn poll_touch_xy(&self) -> Option<(u16, u16)> {
+        self.touch.lock().unwrap().sample()
     }
 
     // ── RGB LED (active LOW) ──────────────────────────────────────────────────
