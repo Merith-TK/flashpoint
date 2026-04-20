@@ -101,8 +101,37 @@ fn qemu_boot() -> ! {
 
 #[cfg(feature = "board-cyd")]
 fn cyd_boot() -> ! {
-    log::info!("[stage1] CYD boot — checking SD card");
+    use esp_idf_svc::hal::peripherals::Peripherals;
+    use esp_idf_svc::sys as idf;
 
+    // ── Recovery mode check ───────────────────────────────────────────────────
+    // BOOT button (IO0) is active LOW with internal pull-up.
+    // Read GPIO0 via raw esp-idf before taking Peripherals so we don't
+    // partially move the Peripherals struct.
+    let recovery = unsafe {
+        // Configure IO0 as input with pull-up, then sample.
+        idf::gpio_config(&idf::gpio_config_t {
+            pin_bit_mask: 1 << 0,
+            mode: idf::gpio_mode_t_GPIO_MODE_INPUT,
+            pull_up_en: idf::gpio_pullup_t_GPIO_PULLUP_ENABLE,
+            pull_down_en: idf::gpio_pulldown_t_GPIO_PULLDOWN_DISABLE,
+            intr_type: idf::gpio_int_type_t_GPIO_INTR_DISABLE,
+        });
+        idf::gpio_get_level(0) == 0  // active low
+    };
+
+    let peripherals = Peripherals::take().expect("Peripherals already taken");
+
+    // Initialise all CYD peripherals.
+    let platform = hal_cyd::CydPlatform::new(peripherals);
+
+    if recovery {
+        log::info!("[stage1] BOOT button held — entering recovery mode");
+        common::recovery_main(&platform);
+        // recovery_main returns ! so we never reach here
+    }
+
+    log::info!("[stage1] CYD boot — checking SD card");
     if hw::sd_init() {
         log::info!("[stage1] SD card ready — loading flashpoint.rom");
         // NOTE (Plan 05): sd_read_rom must DMA the full ROM into DRAM at

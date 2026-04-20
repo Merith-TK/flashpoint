@@ -339,27 +339,75 @@ pub enum PlatformError {
 
 /// Hardware abstraction contract. firmware implements this per board.
 /// kernel / WASM host API calls only these methods — zero hardware code elsewhere.
+///
+/// Every method has a default implementation so a new HAL crate only needs to
+/// override the methods its hardware actually supports.  Unimplemented methods
+/// log a warning and return a safe fallback — the boot-rom stays alive even if
+/// some subsystem is not yet wired up.
 pub trait Platform {
-    fn sd_read_sectors(&self, start: u32, buf: &mut [u8])  -> Result<(), PlatformError>;
-    fn sd_write_sectors(&self, start: u32, buf: &[u8])     -> Result<(), PlatformError>;
-    fn sd_sector_count(&self) -> u32;
-    fn nvs_read(&self, ns: &str, key: &str)                -> Result<Vec<u8>, PlatformError>;
-    fn nvs_write(&self, ns: &str, key: &str, val: &[u8])   -> Result<(), PlatformError>;
-    fn nvs_delete(&self, ns: &str, key: &str)              -> Result<(), PlatformError>;
-    fn display_flush(&self, buf: &FrameBuffer)             -> Result<(), PlatformError>;
-    fn display_clear(&self)                                -> Result<(), PlatformError>;
-    fn display_width(&self)  -> u16;
-    fn display_height(&self) -> u16;
-    fn poll_event(&self) -> Option<Event>;
-    fn battery_percent(&self) -> u8;
-    fn chip_id(&self)         -> ChipId;
-    fn reboot(&self)          -> !;
-    fn sleep_ms(&self, ms: u32);
-    fn flashpoint_version(&self) -> (u32, u32);
+    // ── Storage ──────────────────────────────────────────────────────────────
+    fn sd_read_sectors(&self, _start: u32, _buf: &mut [u8]) -> Result<(), PlatformError> {
+        log::warn!("sd_read_sectors not supported on this device");
+        Err(PlatformError::NotSupported)
+    }
+    fn sd_write_sectors(&self, _start: u32, _buf: &[u8]) -> Result<(), PlatformError> {
+        log::warn!("sd_write_sectors not supported on this device");
+        Err(PlatformError::NotSupported)
+    }
+    fn sd_sector_count(&self) -> u32 { 0 }
+    fn nvs_read(&self, _ns: &str, _key: &str) -> Result<Vec<u8>, PlatformError> {
+        log::warn!("nvs_read not supported on this device");
+        Err(PlatformError::NotSupported)
+    }
+    fn nvs_write(&self, _ns: &str, _key: &str, _val: &[u8]) -> Result<(), PlatformError> {
+        log::warn!("nvs_write not supported on this device");
+        Err(PlatformError::NotSupported)
+    }
+    fn nvs_delete(&self, _ns: &str, _key: &str) -> Result<(), PlatformError> {
+        log::warn!("nvs_delete not supported on this device");
+        Err(PlatformError::NotSupported)
+    }
+
+    // ── Display ───────────────────────────────────────────────────────────────
+    fn display_flush(&self, _buf: &FrameBuffer) -> Result<(), PlatformError> {
+        log::warn!("display_flush not supported on this device");
+        Err(PlatformError::NotSupported)
+    }
+    fn display_clear(&self) -> Result<(), PlatformError> {
+        log::warn!("display_clear not supported on this device");
+        Err(PlatformError::NotSupported)
+    }
+    fn display_width(&self)  -> u16 { 0 }
+    fn display_height(&self) -> u16 { 0 }
+
+    // ── Input ─────────────────────────────────────────────────────────────────
+    fn poll_event(&self) -> Option<Event> { None }
+
+    // ── LEDs ──────────────────────────────────────────────────────────────────
+    /// Drive the onboard RGB LED. Values are 0=off, 255=full brightness.
+    /// Default returns NotSupported (device has no RGB LED).
+    fn led_rgb(&self, _r: u8, _g: u8, _b: u8) -> Result<(), PlatformError> {
+        log::warn!("led_rgb not supported on this device");
+        Err(PlatformError::NotSupported)
+    }
+
+    // ── System ────────────────────────────────────────────────────────────────
+    fn battery_percent(&self) -> u8 { 100 }
+    fn chip_id(&self)         -> ChipId { ChipId::Esp32 }
+    fn reboot(&self)          -> ! { loop {} }
+    fn sleep_ms(&self, _ms: u32) {}
+    fn flashpoint_version(&self) -> (u32, u32) {
+        (FLASHPOINT_CURRENT, FLASHPOINT_LAST_BREAKING)
+    }
     /// Max bytes of WASM linear memory this device can provide (0 = no WASM support)
-    fn wasm_arena_limit(&self) -> usize;
+    fn wasm_arena_limit(&self) -> usize { 0 }
     /// Max bytes of Lua heap this device can provide (0 = no Lua support)
-    fn lua_heap_limit(&self) -> usize;
+    fn lua_heap_limit(&self)   -> usize { 0 }
+
+    // ── Capability reporting ──────────────────────────────────────────────────
+    /// Bitmask of FEAT_* constants describing hardware capabilities.
+    /// Used by the recovery menu and ROM validation. Default: no features.
+    fn features(&self) -> u64 { 0 }
 }
 
 // ─── Hardware-agnostic kernel entry ─────────────────────────────────────────
@@ -396,6 +444,221 @@ fn render_row(y: u16, h: u16, w: u16, row: &mut [u8]) {
         row[i]     = bytes[0];
         row[i + 1] = bytes[1];
     }
+}
+
+// ─── Recovery menu ───────────────────────────────────────────────────────────
+
+/// Recovery menu items.  The list is fixed; capability-gated items are shown
+/// or hidden at runtime based on `platform.features()`.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RecoveryItem {
+    DisplayTest,
+    TouchTest,
+    LedTest,
+    WifiAp,   // only shown when FEAT_WIFI
+    Reboot,
+}
+
+impl RecoveryItem {
+    /// RGB565 colour for the band when this item is the active selection.
+    fn color_active(self) -> u16 {
+        match self {
+            RecoveryItem::DisplayTest => 0xF81F, // magenta
+            RecoveryItem::TouchTest   => 0x07FF, // cyan
+            RecoveryItem::LedTest     => 0xFFE0, // yellow
+            RecoveryItem::WifiAp      => 0x001F, // blue
+            RecoveryItem::Reboot      => 0xF800, // red
+        }
+    }
+    /// Dimmed (inactive) version: shift right 2 bits per channel.
+    fn color_inactive(self) -> u16 {
+        let c = self.color_active();
+        let r = (c >> 11) & 0x1F;
+        let g = (c >>  5) & 0x3F;
+        let b =  c        & 0x1F;
+        ((r >> 2) << 11) | ((g >> 2) << 5) | (b >> 2)
+    }
+    fn label(self) -> &'static str {
+        match self {
+            RecoveryItem::DisplayTest => "DISPLAY TEST",
+            RecoveryItem::TouchTest   => "TOUCH TEST",
+            RecoveryItem::LedTest     => "LED TEST",
+            RecoveryItem::WifiAp      => "WIFI AP RECOVERY",
+            RecoveryItem::Reboot      => "REBOOT",
+        }
+    }
+}
+
+/// Hardware-agnostic recovery menu.
+///
+/// - If the platform has a display (`FEAT_DISP_TFT`), renders a colour-band
+///   menu and navigates with touch/button events.
+/// - Otherwise falls back to the serial console: logs each test result and
+///   reboots when done.
+pub fn recovery_main(platform: &dyn Platform) -> ! {
+    log::info!("[recovery] entering recovery mode");
+
+    let has_display = platform.features() & FEAT_DISP_TFT != 0;
+    let has_wifi    = platform.features() & FEAT_WIFI     != 0;
+
+    if has_display {
+        recovery_display_menu(platform, has_wifi)
+    } else {
+        recovery_console(platform, has_wifi)
+    }
+}
+
+fn recovery_display_menu(platform: &dyn Platform, has_wifi: bool) -> ! {
+    use Vec as ItemVec;
+    let mut items: ItemVec<RecoveryItem> = Vec::new();
+    items.push(RecoveryItem::DisplayTest);
+    items.push(RecoveryItem::TouchTest);
+    items.push(RecoveryItem::LedTest);
+    if has_wifi { items.push(RecoveryItem::WifiAp); }
+    items.push(RecoveryItem::Reboot);
+
+    let mut selected: usize = 0;
+    let w = platform.display_width();
+    let h = platform.display_height();
+    let n = items.len() as u16;
+    let band = h / n;
+
+    // Draw initial menu
+    recovery_draw_menu(platform, &items, selected, w, h, band);
+
+    loop {
+        match platform.poll_event() {
+            Some(Event::BtnUp) => {
+                if selected > 0 { selected -= 1; }
+                recovery_draw_menu(platform, &items, selected, w, h, band);
+            }
+            Some(Event::BtnDown) => {
+                if selected + 1 < items.len() { selected += 1; }
+                recovery_draw_menu(platform, &items, selected, w, h, band);
+            }
+            Some(Event::BtnSelect) => {
+                recovery_run_item(platform, items[selected]);
+                // Redraw after running item
+                recovery_draw_menu(platform, &items, selected, w, h, band);
+            }
+            _ => {}
+        }
+        platform.sleep_ms(50);
+    }
+}
+
+fn recovery_draw_menu(
+    platform: &dyn Platform,
+    items: &[RecoveryItem],
+    selected: usize,
+    w: u16,
+    h: u16,
+    band: u16,
+) {
+    let mut row = [0u8; 640];
+    let n = items.len() as u16;
+    for y in 0..h {
+        let item_idx = ((y / band) as usize).min(n as usize - 1);
+        let color = if item_idx == selected {
+            items[item_idx].color_active()
+        } else {
+            items[item_idx].color_inactive()
+        };
+        let bytes = color.to_le_bytes();
+        for i in (0..w as usize * 2).step_by(2) {
+            row[i]     = bytes[0];
+            row[i + 1] = bytes[1];
+        }
+        platform.display_flush(&FrameBuffer { y, data: &row[..w as usize * 2] }).ok();
+    }
+}
+
+fn recovery_run_item(platform: &dyn Platform, item: RecoveryItem) {
+    match item {
+        RecoveryItem::DisplayTest => {
+            log::info!("[recovery] running display test");
+            let w = platform.display_width();
+            let h = platform.display_height();
+            let mut row = [0u8; 640];
+            // Draw RGB stripes: red / green / blue / white / black
+            let stripe_h = h / 5;
+            let colors: [u16; 5] = [0xF800, 0x07E0, 0x001F, 0xFFFF, 0x0000];
+            for y in 0..h {
+                let c = colors[((y / stripe_h) as usize).min(4)];
+                let b = c.to_le_bytes();
+                for i in (0..w as usize * 2).step_by(2) { row[i] = b[0]; row[i+1] = b[1]; }
+                platform.display_flush(&FrameBuffer { y, data: &row[..w as usize * 2] }).ok();
+            }
+            platform.sleep_ms(2000);
+        }
+        RecoveryItem::TouchTest => {
+            log::info!("[recovery] touch test — press BtnSelect to exit");
+            let w = platform.display_width();
+            let h = platform.display_height();
+            let mut row = [0u8; 640];
+            let mut deadline = 5000u32;
+            while deadline > 0 {
+                let color: u16 = match platform.poll_event() {
+                    Some(Event::BtnUp)     => 0x07FF,
+                    Some(Event::BtnDown)   => 0xF800,
+                    Some(Event::BtnLeft)   => 0x001F,
+                    Some(Event::BtnRight)  => 0x07E0,
+                    Some(Event::BtnSelect) => break,
+                    _                      => 0x2104, // dark grey
+                };
+                let b = color.to_le_bytes();
+                for y in 0..h {
+                    for i in (0..w as usize * 2).step_by(2) { row[i] = b[0]; row[i+1] = b[1]; }
+                    platform.display_flush(&FrameBuffer { y, data: &row[..w as usize * 2] }).ok();
+                }
+                platform.sleep_ms(50);
+                deadline = deadline.saturating_sub(50);
+            }
+        }
+        RecoveryItem::LedTest => {
+            log::info!("[recovery] running LED test");
+            let seq: [(u8,u8,u8); 6] = [
+                (255,0,0), (0,255,0), (0,0,255), (255,255,0), (255,255,255), (0,0,0)
+            ];
+            for (r,g,b) in seq {
+                if platform.led_rgb(r, g, b).is_err() {
+                    log::warn!("[recovery] LED not available on this device");
+                    break;
+                }
+                platform.sleep_ms(400);
+            }
+        }
+        RecoveryItem::WifiAp => {
+            log::info!("[recovery] WiFi AP recovery — not yet implemented");
+            // Future: platform.wifi_start_ap("flashpoint-recovery", "") + HTTP file server
+            platform.sleep_ms(1000);
+        }
+        RecoveryItem::Reboot => {
+            log::info!("[recovery] rebooting...");
+            platform.sleep_ms(500);
+            platform.reboot();
+        }
+    }
+}
+
+fn recovery_console(platform: &dyn Platform, _has_wifi: bool) -> ! {
+    log::info!("[recovery] ---- RECOVERY MODE (console) ----");
+    log::info!("[recovery] running display test...");
+    platform.display_clear().ok();
+    platform.sleep_ms(500);
+
+    log::info!("[recovery] running LED test...");
+    for (r,g,b) in [(255u8,0,0),(0,255,0),(0,0,255),(255,255,255),(0u8,0,0)] {
+        if platform.led_rgb(r, g, b).is_err() {
+            log::warn!("[recovery] LED not available");
+            break;
+        }
+        platform.sleep_ms(400);
+    }
+
+    log::info!("[recovery] tests complete — rebooting in 3s");
+    platform.sleep_ms(3000);
+    platform.reboot();
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────────────

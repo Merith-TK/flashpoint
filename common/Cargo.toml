@@ -9,3 +9,4 @@ std = []
 
 [dependencies]
 crc  = { version = "3", default-features = false }
+log  = { version = "0.4", default-features = false }

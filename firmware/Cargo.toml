@@ -10,19 +10,15 @@ edition.workspace = true
 
 [features]
 default = ["board-cyd"]
-board-cyd  = ["dep:esp-idf-svc", "dep:log", "common/std"]
-board-qemu = ["dep:esp-idf-svc", "dep:log", "common/std"]
+board-cyd  = ["dep:hal-cyd",  "dep:esp-idf-svc", "dep:log", "common/std"]
+board-qemu = ["dep:hal-qemu", "dep:esp-idf-svc", "dep:log", "common/std"]
 
 [dependencies]
-common = { path = "../common", default-features = false }
+common    = { path = "../common", default-features = false }
+hal-cyd   = { path = "../hal/cyd",  optional = true }
+hal-qemu  = { path = "../hal/qemu", optional = true }
 esp-idf-svc = { version = "0.52", features = ["binstart"], optional = true }
 log = { version = "0.4", optional = true }
-
-# TODO (step 0.5 / board-cyd): uncomment when CYD HAL is implemented
-# esp-idf-hal       = "0.43"
-# mipidsi           = "0.8"
-# display-interface-spi = "0.4"
-# embedded-sdmmc    = "0.7"
 
 [build-dependencies]
 embuild = "0.33"

@@ -1,11 +1,6 @@
 #[cfg(feature = "board-cyd")]
-pub mod esp32_cyd;
+pub use hal_cyd::CydPlatform as ActivePlatform;
 #[cfg(feature = "board-qemu")]
-pub mod emulator;
+pub use hal_qemu::EmulatorPlatform as ActivePlatform;
 
 pub use common::{FrameBuffer, Platform, PlatformError};
-
-#[cfg(feature = "board-cyd")]
-pub use esp32_cyd::CydPlatform as ActivePlatform;
-#[cfg(feature = "board-qemu")]
-pub use emulator::EmulatorPlatform as ActivePlatform;

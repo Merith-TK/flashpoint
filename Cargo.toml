@@ -4,6 +4,8 @@ members = [
     "xtask",
     "kernel",
     "firmware",
+    "hal/cyd",
+    "hal/qemu",
 ]
 # embedded crates target xtensa-esp32-espidf — exclude from default host builds
 default-members = [

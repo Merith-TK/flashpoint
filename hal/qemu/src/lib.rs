@@ -1,12 +1,14 @@
-// EmulatorPlatform — Platform trait impl for QEMU (board-qemu feature).
+// hal-qemu — EmulatorPlatform for QEMU (board-qemu feature).
+//
 // All display output goes to UART via log::info!.
 // Input always returns None — boot_main loops until BtnSelect, which never fires;
 // emu-run kills QEMU after seeing the expected log output.
 
 use common::{
     ChipId, Event, FrameBuffer, Platform, PlatformError,
-    FLASHPOINT_CURRENT, FLASHPOINT_LAST_BREAKING,
+    FEAT_DISP_TFT, FLASHPOINT_CURRENT, FLASHPOINT_LAST_BREAKING,
 };
+use std::vec::Vec;
 
 pub struct EmulatorPlatform;
 
@@ -14,7 +16,12 @@ impl EmulatorPlatform {
     pub fn new() -> Self { EmulatorPlatform }
 }
 
+impl Default for EmulatorPlatform {
+    fn default() -> Self { Self::new() }
+}
+
 impl Platform for EmulatorPlatform {
+    // ── Display ───────────────────────────────────────────────────────────────
     fn display_clear(&self) -> Result<(), PlatformError> {
         log::info!("[display] clear");
         Ok(())
@@ -31,9 +38,11 @@ impl Platform for EmulatorPlatform {
     fn display_width(&self)  -> u16 { 320 }
     fn display_height(&self) -> u16 { 240 }
 
+    // ── Input ─────────────────────────────────────────────────────────────────
     fn poll_event(&self) -> Option<Event> { None }
 
-    fn battery_percent(&self) -> u8  { 100 }
+    // ── System ────────────────────────────────────────────────────────────────
+    fn battery_percent(&self) -> u8 { 100 }
     fn chip_id(&self)         -> ChipId { ChipId::Esp32 }
 
     fn sleep_ms(&self, ms: u32) {
@@ -50,6 +59,15 @@ impl Platform for EmulatorPlatform {
         (FLASHPOINT_CURRENT, FLASHPOINT_LAST_BREAKING)
     }
 
+    fn wasm_arena_limit(&self) -> usize { 256 * 1024 }
+    fn lua_heap_limit(&self)   -> usize { 64 * 1024 }
+
+    // ── Capabilities ──────────────────────────────────────────────────────────
+    fn features(&self) -> u64 {
+        FEAT_DISP_TFT // QEMU has a simulated display only
+    }
+
+    // ── Storage: not available in QEMU ───────────────────────────────────────
     fn sd_read_sectors(&self, _: u32, _: &mut [u8]) -> Result<(), PlatformError> {
         Err(PlatformError::SdReadError)
     }
@@ -66,7 +84,4 @@ impl Platform for EmulatorPlatform {
     fn nvs_delete(&self, _: &str, _: &str) -> Result<(), PlatformError> {
         Err(PlatformError::NvsError)
     }
-
-    fn wasm_arena_limit(&self) -> usize { 256 * 1024 }
-    fn lua_heap_limit(&self)   -> usize { 64 * 1024 }
 }
