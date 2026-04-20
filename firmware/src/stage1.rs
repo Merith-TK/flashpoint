@@ -157,8 +157,8 @@ fn cyd_boot() -> ! {
     }
 
     if BOOTROM_SIZE == 0 {
-        log::warn!("[stage1] no internal boot ROM — falling back to boot_main");
-        common::boot_main(&platform);
+        log::warn!("[stage1] no internal boot ROM — entering recovery");
+        common::recovery_main(&platform);
     }
 
     log::info!("[stage1] reading internal ROM at offset=0x{:08X} size=0x{:08X}",
@@ -173,17 +173,9 @@ fn cyd_boot() -> ! {
             hw::publish_platform_ptr(core::ptr::null());
             hw::jump_to(entry);
         }
-        Err(HeaderError::MissingFeatures) => {
-            log::error!("[stage1] ROM requires features this device lacks — halting");
-            hw::error_led(hw::ErrorCode::FeatureMismatch)
-        }
-        Err(HeaderError::BadChecksum) => {
-            log::error!("[stage1] ROM checksum mismatch — halting");
-            hw::error_led(hw::ErrorCode::BadChecksum)
-        }
         Err(e) => {
-            log::error!("[stage1] ROM header invalid ({:?}) — halting", e);
-            hw::error_led(hw::ErrorCode::BadMagic)
+            log::error!("[stage1] ROM header invalid ({:?}) — entering recovery", e);
+            common::recovery_main(&platform);
         }
     }
 }

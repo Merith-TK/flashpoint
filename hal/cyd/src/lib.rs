@@ -197,8 +197,9 @@ fn nvs_erase(ns: &str, key: &str) -> Result<(), PlatformError> {
 // ─── CydPlatform ─────────────────────────────────────────────────────────────
 
 pub struct CydPlatform {
-    display:   Mutex<LcdDisplay>,
-    backlight: Mutex<OutPin>,
+    display:              Mutex<LcdDisplay>,
+    #[allow(dead_code)] // must be held to keep backlight pin driven high
+    backlight:            Mutex<OutPin>,
     touch:     Mutex<TouchBitbang>,
     sd_card:   SdCardDev,     // SdCard uses RefCell internally; safe via &self
     led_r:     Mutex<OutPin>,

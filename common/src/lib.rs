@@ -413,25 +413,24 @@ pub trait Platform {
 // ─── Hardware-agnostic kernel entry ─────────────────────────────────────────
 
 pub fn boot_main(platform: &dyn Platform) -> ! {
-    log::info!("[boot_main] clearing display");
-    platform.display_clear().ok();
-    log::info!("[boot_main] display cleared");
-
+    log::info!("[boot_main] starting");
     let w = platform.display_width();
     let h = platform.display_height();
     log::info!("[boot_main] display {}x{}", w, h);
-    let mut row = [0u8; 640];
 
-    for y in 0..h {
-        render_row(y, h, w, &mut row[..w as usize * 2]);
-        platform.display_flush(&FrameBuffer {
-            y,
-            data: &row[..w as usize * 2],
-        }).ok();
-        if y % 60 == 0 {
-            log::info!("[boot_main] rendered row {}/{}", y, h);
-        }
-    }
+    display_fill(platform, 0x000F); // dark navy background
+
+    let title = "FLASHPOINT";
+    let tx = text_x_center(w, title) as u16;
+    display_text(platform, tx, h / 3, title, 0xFFFF, 0x000F);
+
+    let sub = "NO ROM FOUND";
+    let sx = text_x_center(w, sub) as u16;
+    display_text(platform, sx, h / 3 + 16, sub, 0xFD20, 0x000F);
+
+    let hint = "HOLD BOOT TO RECOVER";
+    let hx = text_x_center(w, hint) as u16;
+    display_text(platform, hx, h * 3 / 4, hint, 0x07E0, 0x000F);
 
     log::info!("[boot_main] render complete — entering event loop");
     loop {
@@ -442,20 +441,105 @@ pub fn boot_main(platform: &dyn Platform) -> ! {
     }
 }
 
-fn render_row(y: u16, h: u16, w: u16, row: &mut [u8]) {
-    // Divide screen into thirds: top=red, middle=white, bottom=blue
-    let third = h / 3;
-    let color: u16 = if y < third {
-        0xF800 // red
-    } else if y < third * 2 {
-        0xFFFF // white
-    } else {
-        0x001F // bright blue
-    };
-    let bytes = color.to_le_bytes();
-    for i in (0..w as usize * 2).step_by(2) {
-        row[i]     = bytes[0];
-        row[i + 1] = bytes[1];
+// ── Bitmap font (8×8, public-domain VGA-style glyphs) ────────────────────────
+
+/// Returns the 8 row bytes for an ASCII character.
+/// Each byte is one row of pixels, MSB = leftmost pixel.
+/// Input is case-insensitive; lowercase is treated as uppercase.
+fn font_glyph(c: u8) -> [u8; 8] {
+    match c.to_ascii_uppercase() {
+        b' ' => [0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00],
+        b'!' => [0x18,0x18,0x18,0x18,0x18,0x00,0x18,0x00],
+        b'.' => [0x00,0x00,0x00,0x00,0x00,0x18,0x18,0x00],
+        b'-' => [0x00,0x00,0x00,0x7E,0x00,0x00,0x00,0x00],
+        b':' => [0x00,0x18,0x18,0x00,0x18,0x18,0x00,0x00],
+        b'/' => [0x00,0x02,0x04,0x08,0x10,0x20,0x00,0x00],
+        b'0' => [0x3C,0x42,0x46,0x4A,0x52,0x62,0x3C,0x00],
+        b'1' => [0x08,0x18,0x08,0x08,0x08,0x08,0x1C,0x00],
+        b'2' => [0x3C,0x42,0x02,0x0C,0x30,0x40,0x7E,0x00],
+        b'3' => [0x3C,0x42,0x02,0x1C,0x02,0x42,0x3C,0x00],
+        b'4' => [0x04,0x0C,0x14,0x24,0x7E,0x04,0x04,0x00],
+        b'5' => [0x7E,0x40,0x7C,0x02,0x02,0x42,0x3C,0x00],
+        b'6' => [0x3C,0x40,0x7C,0x42,0x42,0x42,0x3C,0x00],
+        b'7' => [0x7E,0x02,0x04,0x08,0x10,0x20,0x20,0x00],
+        b'8' => [0x3C,0x42,0x42,0x3C,0x42,0x42,0x3C,0x00],
+        b'9' => [0x3C,0x42,0x42,0x3E,0x02,0x42,0x3C,0x00],
+        b'A' => [0x18,0x24,0x42,0x7E,0x42,0x42,0x42,0x00],
+        b'B' => [0x7C,0x42,0x42,0x7C,0x42,0x42,0x7C,0x00],
+        b'C' => [0x3C,0x42,0x40,0x40,0x40,0x42,0x3C,0x00],
+        b'D' => [0x78,0x44,0x42,0x42,0x42,0x44,0x78,0x00],
+        b'E' => [0x7E,0x40,0x40,0x7C,0x40,0x40,0x7E,0x00],
+        b'F' => [0x7E,0x40,0x40,0x7C,0x40,0x40,0x40,0x00],
+        b'G' => [0x3C,0x42,0x40,0x4E,0x42,0x42,0x3C,0x00],
+        b'H' => [0x42,0x42,0x42,0x7E,0x42,0x42,0x42,0x00],
+        b'I' => [0x3E,0x08,0x08,0x08,0x08,0x08,0x3E,0x00],
+        b'J' => [0x1E,0x04,0x04,0x04,0x44,0x44,0x3C,0x00],
+        b'K' => [0x42,0x44,0x48,0x70,0x48,0x44,0x42,0x00],
+        b'L' => [0x40,0x40,0x40,0x40,0x40,0x40,0x7E,0x00],
+        b'M' => [0x42,0x66,0x5A,0x42,0x42,0x42,0x42,0x00],
+        b'N' => [0x42,0x62,0x52,0x4A,0x46,0x42,0x42,0x00],
+        b'O' => [0x3C,0x42,0x42,0x42,0x42,0x42,0x3C,0x00],
+        b'P' => [0x7C,0x42,0x42,0x7C,0x40,0x40,0x40,0x00],
+        b'Q' => [0x3C,0x42,0x42,0x42,0x4A,0x44,0x3A,0x00],
+        b'R' => [0x7C,0x42,0x42,0x7C,0x48,0x44,0x42,0x00],
+        b'S' => [0x3C,0x42,0x40,0x3C,0x02,0x42,0x3C,0x00],
+        b'T' => [0x7E,0x08,0x08,0x08,0x08,0x08,0x08,0x00],
+        b'U' => [0x42,0x42,0x42,0x42,0x42,0x42,0x3C,0x00],
+        b'V' => [0x42,0x42,0x42,0x42,0x24,0x24,0x18,0x00],
+        b'W' => [0x42,0x42,0x42,0x42,0x5A,0x66,0x42,0x00],
+        b'X' => [0x42,0x42,0x24,0x18,0x24,0x42,0x42,0x00],
+        b'Y' => [0x42,0x42,0x24,0x18,0x08,0x08,0x08,0x00],
+        b'Z' => [0x7E,0x02,0x04,0x08,0x10,0x20,0x7E,0x00],
+        _    => [0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00],
+    }
+}
+
+/// Write one horizontal scan-line of glyphs into a pixel row buffer (RGB565 LE).
+/// `char_row` selects which of the 8 glyph rows to render (0 = top).
+/// The caller must pre-fill the row with the background colour before calling this;
+/// only pixels covered by set glyph bits are written here.
+pub fn draw_text_row(row: &mut [u8], x_start: usize, text: &str, char_row: u8, fg: u16, bg: u16) {
+    let fg_b = fg.to_le_bytes();
+    let bg_b = bg.to_le_bytes();
+    for (ci, c) in text.bytes().enumerate() {
+        let glyph_row = font_glyph(c)[7 - char_row as usize];
+        for bit in 0..8usize {
+            let px = (x_start + ci * 8 + bit) * 2;
+            if px + 1 >= row.len() { return; }
+            let color = if (glyph_row >> (7 - bit)) & 1 != 0 { fg_b } else { bg_b };
+            row[px] = color[0]; row[px + 1] = color[1];
+        }
+    }
+}
+
+/// Returns the x pixel offset to horizontally center `text` in a row of `w` pixels.
+pub fn text_x_center(w: u16, text: &str) -> usize {
+    let tw = text.len() * 8;
+    if tw >= w as usize { 0 } else { (w as usize - tw) / 2 }
+}
+
+/// Fill the entire display with a single RGB565 colour.
+pub fn display_fill(platform: &dyn Platform, color: u16) {
+    let w = platform.display_width();
+    let h = platform.display_height();
+    let mut row = [0u8; 640];
+    let b = color.to_le_bytes();
+    for i in (0..w as usize * 2).step_by(2) { row[i] = b[0]; row[i + 1] = b[1]; }
+    for y in 0..h {
+        platform.display_flush(&FrameBuffer { y, data: &row[..w as usize * 2] }).ok();
+    }
+}
+
+/// Render a single line of 8px-tall text at pixel position (x, y).
+/// Writes exactly 8 full-width rows to the display starting at row y.
+pub fn display_text(platform: &dyn Platform, x: u16, y: u16, text: &str, fg: u16, bg: u16) {
+    let w = platform.display_width();
+    let mut row = [0u8; 640];
+    let bg_b = bg.to_le_bytes();
+    for row_i in 0u16..8 {
+        for i in (0..w as usize * 2).step_by(2) { row[i] = bg_b[0]; row[i + 1] = bg_b[1]; }
+        draw_text_row(&mut row[..w as usize * 2], x as usize, text, row_i as u8, fg, bg);
+        platform.display_flush(&FrameBuffer { y: y + row_i, data: &row[..w as usize * 2] }).ok();
     }
 }
 
@@ -572,15 +656,21 @@ fn recovery_draw_menu(
     let n = items.len() as u16;
     for y in 0..h {
         let item_idx = ((y / band) as usize).min(n as usize - 1);
-        let color = if item_idx == selected {
-            items[item_idx].color_active()
-        } else {
-            items[item_idx].color_inactive()
-        };
-        let bytes = color.to_le_bytes();
-        for i in (0..w as usize * 2).step_by(2) {
-            row[i]     = bytes[0];
-            row[i + 1] = bytes[1];
+        let active = item_idx == selected;
+        let bg = if active { items[item_idx].color_active() } else { items[item_idx].color_inactive() };
+        // Fill row with band colour.
+        let b = bg.to_le_bytes();
+        for i in (0..w as usize * 2).step_by(2) { row[i] = b[0]; row[i + 1] = b[1]; }
+        // Overlay text label centred vertically within the band.
+        let band_start = item_idx as u16 * band;
+        let text_top   = band_start + band.saturating_sub(8) / 2;
+        if y >= text_top && y < text_top + 8 {
+            let label    = items[item_idx].label();
+            let char_row = (y - text_top) as u8;
+            let lx       = text_x_center(w, label);
+            // Black text on bright (selected) band, white on dimmed (unselected).
+            let fg: u16  = if active { 0x0000 } else { 0xFFFF };
+            draw_text_row(&mut row[..w as usize * 2], lx, label, char_row, fg, bg);
         }
         platform.display_flush(&FrameBuffer { y, data: &row[..w as usize * 2] }).ok();
     }
