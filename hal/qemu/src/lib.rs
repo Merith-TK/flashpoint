@@ -1,13 +1,11 @@
 // hal-qemu — EmulatorPlatform for QEMU (board-qemu feature).
-//
-// All display output goes to UART via log::info!.
-// Input always returns None — boot_main loops until BtnSelect, which never fires;
-// emu-run kills QEMU after seeing the expected log output.
 
-use common::{
-    ChipId, Event, FrameBuffer, Platform, PlatformError, FEAT_DISP_TFT, FLASHPOINT_CURRENT,
-    FLASHPOINT_LAST_BREAKING,
-};
+mod display;
+mod input;
+mod storage;
+mod system;
+
+use common::{ChipId, Event, FrameBuffer, Platform, PlatformError, FEAT_DISP_TFT};
 use std::vec::Vec;
 
 pub struct EmulatorPlatform;
@@ -25,83 +23,61 @@ impl Default for EmulatorPlatform {
 }
 
 impl Platform for EmulatorPlatform {
-    // ── Display ───────────────────────────────────────────────────────────────
     fn display_clear(&self) -> Result<(), PlatformError> {
-        log::info!("[display] clear");
-        Ok(())
+        display::clear()
     }
-
     fn display_flush(&self, buf: &FrameBuffer) -> Result<(), PlatformError> {
-        // Log every 60 scanlines to keep output readable
-        if buf.y % 60 == 0 {
-            log::info!("[display] scanline y={}", buf.y);
-        }
-        Ok(())
+        display::flush(buf)
     }
-
     fn display_width(&self) -> u16 {
-        320
+        display::width()
     }
     fn display_height(&self) -> u16 {
-        240
+        display::height()
     }
-
-    // ── Input ─────────────────────────────────────────────────────────────────
     fn poll_event(&self) -> Option<Event> {
-        None
+        input::poll_event()
     }
-
-    // ── System ────────────────────────────────────────────────────────────────
     fn battery_percent(&self) -> u8 {
-        100
+        system::battery_percent()
     }
     fn chip_id(&self) -> ChipId {
-        ChipId::Esp32
+        system::chip_id()
     }
-
     fn sleep_ms(&self, ms: u32) {
-        use esp_idf_svc::hal::delay::FreeRtos;
-        FreeRtos::delay_ms(ms);
+        system::sleep_ms(ms)
     }
-
     fn reboot(&self) -> ! {
-        // Never reached in QEMU (poll_event always returns None)
-        panic!("reboot requested in emulator");
+        system::reboot()
     }
-
     fn flashpoint_version(&self) -> (u32, u32) {
-        (FLASHPOINT_CURRENT, FLASHPOINT_LAST_BREAKING)
+        system::flashpoint_version()
     }
-
     fn wasm_arena_limit(&self) -> usize {
-        256 * 1024
+        system::wasm_arena_limit()
     }
     fn lua_heap_limit(&self) -> usize {
-        64 * 1024
+        system::lua_heap_limit()
     }
-
-    // ── Capabilities ──────────────────────────────────────────────────────────
     fn features(&self) -> u64 {
-        FEAT_DISP_TFT // QEMU has a simulated display only
+        FEAT_DISP_TFT
     }
-
-    // ── Storage: not available in QEMU ───────────────────────────────────────
-    fn sd_read_sectors(&self, _: u32, _: &mut [u8]) -> Result<(), PlatformError> {
-        Err(PlatformError::SdReadError)
+    fn sd_read_sectors(&self, start: u32, buf: &mut [u8]) -> Result<(), PlatformError> {
+        storage::sd_read_sectors(start, buf)
     }
-    fn sd_write_sectors(&self, _: u32, _: &[u8]) -> Result<(), PlatformError> {
-        Err(PlatformError::SdWriteError)
+    fn sd_write_sectors(&self, start: u32, buf: &[u8]) -> Result<(), PlatformError> {
+        storage::sd_write_sectors(start, buf)
     }
     fn sd_sector_count(&self) -> u32 {
-        0
+        storage::sd_sector_count()
     }
-    fn nvs_read(&self, _: &str, _: &str) -> Result<Vec<u8>, PlatformError> {
-        Err(PlatformError::NvsError)
+    fn nvs_read(&self, ns: &str, key: &str) -> Result<Vec<u8>, PlatformError> {
+        storage::nvs_read(ns, key)
     }
-    fn nvs_write(&self, _: &str, _: &str, _: &[u8]) -> Result<(), PlatformError> {
-        Err(PlatformError::NvsError)
+    fn nvs_write(&self, ns: &str, key: &str, val: &[u8]) -> Result<(), PlatformError> {
+        storage::nvs_write(ns, key, val)
     }
-    fn nvs_delete(&self, _: &str, _: &str) -> Result<(), PlatformError> {
-        Err(PlatformError::NvsError)
+    fn nvs_delete(&self, ns: &str, key: &str) -> Result<(), PlatformError> {
+        storage::nvs_delete(ns, key)
     }
 }
