@@ -1,9 +1,20 @@
 use crate::constants::*;
-use crate::gfx::{display_fill, display_text, draw_text_row, text_x_center};
+use crate::gfx::{display_fill, display_text, draw_text_row, row_buf, text_x_center};
 use crate::io::Platform;
 use crate::types::{Event, FrameBuffer};
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
+
+// ─── Palette ─────────────────────────────────────────────────────────────────
+// Retro terminal: green-on-black with scanline feel.
+const COLOR_BG: u16 = 0x0000; // black background
+const COLOR_SCANLINE: u16 = 0x0040; // very dark green scanline tint (even rows)
+const COLOR_DIM: u16 = 0x0360; // dim green — inactive text
+const COLOR_SEL_BG: u16 = 0x0200; // dark green highlight bar background
+const COLOR_SEL_FG: u16 = 0x87F0; // bright green-white — selected label
+const COLOR_TITLE: u16 = 0x07E0; // bright green — title
+const COLOR_BORDER: u16 = 0x03E0; // medium green — header/footer border lines
+
 // ─── Recovery menu ───────────────────────────────────────────────────────────
 
 /// Recovery menu items.  The list is fixed; capability-gated items are shown
@@ -19,25 +30,6 @@ enum RecoveryItem {
 }
 
 impl RecoveryItem {
-    /// RGB565 colour for the band when this item is the active selection.
-    fn color_active(self) -> u16 {
-        match self {
-            RecoveryItem::DisplayTest => 0xF81F, // magenta
-            RecoveryItem::TouchCalib => 0x07FF,  // cyan
-            RecoveryItem::LedTest => 0xFFE0,     // yellow
-            RecoveryItem::WifiAp => 0x001F,      // blue
-            RecoveryItem::UsbMount => 0x07E0,    // green
-            RecoveryItem::Reboot => 0xF800,      // red
-        }
-    }
-    /// Dimmed (inactive) version: shift right 2 bits per channel.
-    fn color_inactive(self) -> u16 {
-        let c = self.color_active();
-        let r = (c >> 11) & 0x1F;
-        let g = (c >> 5) & 0x3F;
-        let b = c & 0x1F;
-        ((r >> 2) << 11) | ((g >> 2) << 5) | (b >> 2)
-    }
     fn label(self) -> &'static str {
         match self {
             RecoveryItem::DisplayTest => "DISPLAY TEST",
@@ -165,11 +157,9 @@ fn recovery_display_menu(platform: &dyn Platform, has_wifi: bool, has_usb_otg: b
     let mut selected: usize = 0;
     let w = platform.display_width();
     let h = platform.display_height();
-    let n = items.len() as u16;
-    let band = h / n;
 
     // Draw initial menu + log over UART
-    recovery_draw_menu(platform, &items, selected, w, h, band);
+    recovery_draw_menu(platform, &items, selected, w, h, 0);
     #[cfg(not(feature = "no-uart-recovery"))]
     uart_log_menu(&items, selected);
 
@@ -182,10 +172,10 @@ fn recovery_display_menu(platform: &dyn Platform, has_wifi: bool, has_usb_otg: b
             if let Some(byte) = raw_byte {
                 if let Some(idx) = uart_byte_to_index(byte, items.len()) {
                     selected = idx;
-                    recovery_draw_menu(platform, &items, selected, w, h, band);
+                    recovery_draw_menu(platform, &items, selected, w, h, 0);
                     log::info!("[recovery] running: {}", items[selected].label());
                     recovery_run_item(platform, items[selected]);
-                    recovery_draw_menu(platform, &items, selected, w, h, band);
+                    recovery_draw_menu(platform, &items, selected, w, h, 0);
                     uart_log_menu(&items, selected);
                     platform.sleep_ms(50);
                     continue;
@@ -196,20 +186,20 @@ fn recovery_display_menu(platform: &dyn Platform, has_wifi: bool, has_usb_otg: b
                     if selected > 0 {
                         selected -= 1;
                     }
-                    recovery_draw_menu(platform, &items, selected, w, h, band);
+                    recovery_draw_menu(platform, &items, selected, w, h, 0);
                     uart_log_menu(&items, selected);
                 }
                 Some(Event::BtnDown) => {
                     if selected + 1 < items.len() {
                         selected += 1;
                     }
-                    recovery_draw_menu(platform, &items, selected, w, h, band);
+                    recovery_draw_menu(platform, &items, selected, w, h, 0);
                     uart_log_menu(&items, selected);
                 }
                 Some(Event::BtnSelect) => {
                     log::info!("[recovery] running: {}", items[selected].label());
                     recovery_run_item(platform, items[selected]);
-                    recovery_draw_menu(platform, &items, selected, w, h, band);
+                    recovery_draw_menu(platform, &items, selected, w, h, 0);
                     uart_log_menu(&items, selected);
                 }
                 _ => {}
@@ -221,17 +211,17 @@ fn recovery_display_menu(platform: &dyn Platform, has_wifi: bool, has_usb_otg: b
                 if selected > 0 {
                     selected -= 1;
                 }
-                recovery_draw_menu(platform, &items, selected, w, h, band);
+                recovery_draw_menu(platform, &items, selected, w, h, 0);
             }
             Some(Event::BtnDown) => {
                 if selected + 1 < items.len() {
                     selected += 1;
                 }
-                recovery_draw_menu(platform, &items, selected, w, h, band);
+                recovery_draw_menu(platform, &items, selected, w, h, 0);
             }
             Some(Event::BtnSelect) => {
                 recovery_run_item(platform, items[selected]);
-                recovery_draw_menu(platform, &items, selected, w, h, band);
+                recovery_draw_menu(platform, &items, selected, w, h, 0);
             }
             _ => {}
         }
@@ -245,35 +235,122 @@ fn recovery_draw_menu(
     selected: usize,
     w: u16,
     h: u16,
-    band: u16,
+    _band: u16,
 ) {
-    let mut row = [0u8; 640];
-    let n = items.len() as u16;
+    // ── Layout constants (pixels) ──────────────────────────────────────────
+    // Header block: 2px top padding + 8px title + 2px gap + 1px border = 13 rows (0..=12)
+    const HEADER_TITLE_Y: u16 = 2;    // "FLASHPOINT RECOVERY" row
+    const HEADER_BORDER_Y: u16 = 12;  // horizontal border line
+    // Footer: last 13 rows (border + version)
+    const FOOTER_HEIGHT: u16 = 13;
+    // Menu items: rows between header border and footer border
+    const ITEM_H: u16 = 14; // 2px gap + 8px text + 2px gap + 2px spacing
+
+    let menu_top = HEADER_BORDER_Y + 2; // 2px gap after header border
+    let footer_border_y = h.saturating_sub(FOOTER_HEIGHT);
+
+    let version_str = "FLASHPOINT RECOVERY v0.2";
+
+    let row = unsafe { row_buf() };
+
     for y in 0..h {
-        let item_idx = ((y / band) as usize).min(n as usize - 1);
-        let active = item_idx == selected;
-        let bg = if active {
-            items[item_idx].color_active()
+        let is_footer_border = y == HEADER_BORDER_Y || y == footer_border_y;
+        let is_scanline = y % 2 == 0;
+
+        // ── Determine base background for this row ──────────────────────────
+        let base_bg: u16 = if y < HEADER_BORDER_Y || y > footer_border_y {
+            // header / footer zone — pure black
+            COLOR_BG
+        } else if is_footer_border || y == HEADER_BORDER_Y {
+            COLOR_BG
         } else {
-            items[item_idx].color_inactive()
+            // menu zone — scanline tint on even rows
+            if is_scanline { COLOR_SCANLINE } else { COLOR_BG }
         };
-        // Fill row with band colour.
-        let b = bg.to_le_bytes();
+
+        // Check if this row falls inside a menu item's highlight bar
+        let item_y = if y >= menu_top && y < footer_border_y {
+            let rel = y - menu_top;
+            let idx = (rel / ITEM_H) as usize;
+            if idx < items.len() { Some(idx) } else { None }
+        } else {
+            None
+        };
+
+        let row_bg = if let Some(idx) = item_y {
+            if idx == selected { COLOR_SEL_BG } else { base_bg }
+        } else {
+            base_bg
+        };
+
+        // Fill row
+        let b = row_bg.to_le_bytes();
         for i in (0..w as usize * 2).step_by(2) {
             row[i] = b[0];
             row[i + 1] = b[1];
         }
-        // Overlay text label centred vertically within the band.
-        let band_start = item_idx as u16 * band;
-        let text_top = band_start + band.saturating_sub(8) / 2;
-        if y >= text_top && y < text_top + 8 {
-            let label = items[item_idx].label();
-            let char_row = (y - text_top) as u8;
-            let lx = text_x_center(w, label);
-            // Black text on bright (selected) band, white on dimmed (unselected).
-            let fg: u16 = if active { 0x0000 } else { 0xFFFF };
-            draw_text_row(&mut row[..w as usize * 2], lx, label, char_row, fg, bg);
+
+        // ── Horizontal border lines ─────────────────────────────────────────
+        if is_footer_border || y == HEADER_BORDER_Y {
+            let b = COLOR_BORDER.to_le_bytes();
+            for i in (0..w as usize * 2).step_by(2) {
+                row[i] = b[0];
+                row[i + 1] = b[1];
+            }
         }
+
+        // ── Header title "FLASHPOINT RECOVERY" ─────────────────────────────
+        if y >= HEADER_TITLE_Y && y < HEADER_TITLE_Y + 8 {
+            let char_row = (y - HEADER_TITLE_Y) as u8;
+            let lx = text_x_center(w, version_str);
+            draw_text_row(
+                &mut row[..w as usize * 2],
+                lx,
+                version_str,
+                char_row,
+                COLOR_TITLE,
+                COLOR_BG,
+            );
+        }
+
+        // ── Menu item labels ────────────────────────────────────────────────
+        if let Some(idx) = item_y {
+            let item = items[idx];
+            let item_top = menu_top + idx as u16 * ITEM_H;
+            let text_top = item_top + (ITEM_H.saturating_sub(8)) / 2;
+
+            if y >= text_top && y < text_top + 8 {
+                let char_row = (y - text_top) as u8;
+
+                // Cursor ">" for selected item
+                let (fg, bg) = if idx == selected {
+                    (COLOR_SEL_FG, COLOR_SEL_BG)
+                } else {
+                    (COLOR_DIM, COLOR_BG)
+                };
+
+                let label = item.label();
+                // Build display string with cursor prefix
+                let prefix = if idx == selected { "> " } else { "  " };
+                // Render prefix at fixed x=4, then label at x=4+16 (2 chars × 8)
+                draw_text_row(&mut row[..w as usize * 2], 4, prefix, char_row, fg, bg);
+                draw_text_row(&mut row[..w as usize * 2], 4 + 16, label, char_row, fg, bg);
+
+                // Item number hint on right edge (dim)
+                let num = &[(b'1' + idx as u8)];
+                let num_str = core::str::from_utf8(num).unwrap_or("");
+                let num_x = w as usize - 12; // right-aligned with 4px margin
+                draw_text_row(
+                    &mut row[..w as usize * 2],
+                    num_x,
+                    num_str,
+                    char_row,
+                    COLOR_DIM,
+                    bg,
+                );
+            }
+        }
+
         platform
             .display_flush(&FrameBuffer {
                 y,
@@ -288,7 +365,7 @@ fn recovery_draw_menu(
 fn recovery_cal_render(platform: &dyn Platform, tx: u16, ty: u16, label: &str) {
     let w = platform.display_width();
     let h = platform.display_height();
-    let mut row = [0u8; 640];
+    let row = unsafe { row_buf() };
     let b_bg = (0x0000u16).to_le_bytes();
     let b_ch = (0x07FFu16).to_le_bytes(); // cyan crosshair
     for y in 0..h {
@@ -383,7 +460,7 @@ fn recovery_run_item(platform: &dyn Platform, item: RecoveryItem) {
             log::info!("[recovery] running display test");
             let w = platform.display_width();
             let h = platform.display_height();
-            let mut row = [0u8; 640];
+            let row = unsafe { row_buf() };
             // Draw RGB stripes: red / green / blue / white / black
             let stripe_h = h / 5;
             let colors: [u16; 5] = [0xF800, 0x07E0, 0x001F, 0xFFFF, 0x0000];

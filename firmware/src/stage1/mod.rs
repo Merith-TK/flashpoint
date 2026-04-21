@@ -7,6 +7,21 @@ mod helpers;
 mod qemu;
 
 pub fn stage1_main() -> ! {
+    #[cfg(feature = "board-cyd")]
+    {
+        // Must run once before any nvs_open(), regardless of hardware path.
+        // Erase + reinit on dirty/version-mismatch partitions.
+        unsafe {
+            use esp_idf_svc::sys as idf;
+            let rc = idf::nvs_flash_init();
+            if rc == idf::ESP_ERR_NVS_NO_FREE_PAGES || rc == idf::ESP_ERR_NVS_NEW_VERSION_FOUND {
+                log::warn!("[stage1] NVS partition dirty — erasing and reinitialising");
+                idf::nvs_flash_erase();
+                idf::nvs_flash_init();
+            }
+        }
+    }
+
     #[cfg(feature = "board-qemu")]
     {
         qemu::qemu_boot()

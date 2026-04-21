@@ -1,6 +1,22 @@
 use crate::io::Platform;
 use crate::types::FrameBuffer;
 
+// Single shared row buffer — all rendering happens on one task, never re-entrant.
+// Keeping this in .bss instead of on the stack prevents stack overflows in deeply
+// nested render calls (e.g. draw_menu → run_item → cal_render → display_flush).
+static mut ROW_BUF: [u8; 640] = [0u8; 640];
+
+/// Borrow the shared row buffer.
+///
+/// # Safety
+/// Must only be called from the single rendering task (recovery / boot UI).
+/// Never call this from an ISR or across tasks.
+#[inline(always)]
+pub(crate) unsafe fn row_buf() -> &'static mut [u8; 640] {
+    // SAFETY: single-task rendering; no other references are live during a frame.
+    unsafe { &mut *core::ptr::addr_of_mut!(ROW_BUF) }
+}
+
 fn font_glyph(c: u8) -> [u8; 8] {
     match c.to_ascii_uppercase() {
         b' ' => [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
@@ -84,7 +100,7 @@ pub fn text_x_center(w: u16, text: &str) -> usize {
 pub fn display_fill(platform: &dyn Platform, color: u16) {
     let w = platform.display_width();
     let h = platform.display_height();
-    let mut row = [0u8; 640];
+    let row = unsafe { row_buf() };
     let b = color.to_le_bytes();
     for i in (0..w as usize * 2).step_by(2) {
         row[i] = b[0];
@@ -102,7 +118,7 @@ pub fn display_fill(platform: &dyn Platform, color: u16) {
 
 pub fn display_text(platform: &dyn Platform, x: u16, y: u16, text: &str, fg: u16, bg: u16) {
     let w = platform.display_width();
-    let mut row = [0u8; 640];
+    let row = unsafe { row_buf() };
     let bg_b = bg.to_le_bytes();
     for row_i in 0u16..8 {
         for i in (0..w as usize * 2).step_by(2) {
