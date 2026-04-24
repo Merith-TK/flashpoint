@@ -29,5 +29,8 @@ exfat-slim     = { version = "0.4", features = ["log"], optional = true }
 # SD-backed config store (no_std + nanoserde, no host file I/O)
 tinykv         = { version = "0.4", default-features = false, features = ["nanoserde"], optional = true }
 
+[package.metadata.esp-idf-sys]
+esp_idf_sdkconfig_defaults = ["firmware/sdkconfig.defaults"]
+
 [build-dependencies]
 embuild = "0.33"
