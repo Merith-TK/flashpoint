@@ -10,8 +10,10 @@ edition.workspace = true
 
 [features]
 default = ["board-cyd"]
-board-cyd  = ["dep:hal-cyd",  "dep:esp-idf-svc", "dep:log", "common/std"]
-board-qemu = ["dep:hal-qemu", "dep:esp-idf-svc", "dep:log", "common/std"]
+embedded-sdmmc = ["dep:embedded-sdmmc"]
+exfat-slim     = ["dep:exfat-slim"]
+board-cyd  = ["dep:hal-cyd",  "dep:esp-idf-svc", "dep:log", "common/std", "embedded-sdmmc", "exfat-slim", "dep:tinykv"]
+board-qemu = ["dep:hal-qemu", "dep:esp-idf-svc", "dep:log", "common/std", "embedded-sdmmc", "exfat-slim", "dep:tinykv"]
 test-image = ["common/test-image"]
 
 [dependencies]
@@ -20,6 +22,12 @@ hal-cyd   = { path = "../hal/cyd",  optional = true }
 hal-qemu  = { path = "../hal/qemu", optional = true }
 esp-idf-svc = { version = "0.52", features = ["binstart"], optional = true }
 log = { version = "0.4", optional = true }
+
+# Filesystem backends — both only needed for board targets, not host tools
+embedded-sdmmc = { version = "0.7", optional = true }
+exfat-slim     = { version = "0.4", features = ["log"], optional = true }
+# SD-backed config store (no_std + nanoserde, no host file I/O)
+tinykv         = { version = "0.4", default-features = false, features = ["nanoserde"], optional = true }
 
 [build-dependencies]
 embuild = "0.33"

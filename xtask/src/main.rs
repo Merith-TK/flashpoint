@@ -62,6 +62,10 @@ enum Task {
         /// Path to an existing flashpoint.rom to embed (skips build-boot when provided)
         #[arg(long)]
         bootrom: Option<PathBuf>,
+
+        /// Delete the ESP-IDF CMake build cache before compiling (forces full reconfigure)
+        #[arg(long)]
+        clean: bool,
     },
 
     /// Create a merged flash binary (bootloader + partition table + app) ready for espflash/QEMU
@@ -102,6 +106,10 @@ enum Task {
         /// Also embed the kernel before flashing
         #[arg(long)]
         embed_boot: bool,
+
+        /// Delete the ESP-IDF CMake build cache before compiling (forces full reconfigure)
+        #[arg(long)]
+        clean: bool,
     },
 
     /// Open a serial monitor to watch device output (Ctrl+] to exit)
@@ -165,7 +173,8 @@ fn main() {
             board,
             embed_boot,
             bootrom,
-        } => cmd_build_flash(&board, embed_boot, bootrom.as_deref()),
+            clean,
+        } => cmd_build_flash(&board, embed_boot, bootrom.as_deref(), clean),
         Task::BuildImage { board, output } => cmd_build_image(&board, &output),
         Task::EmuBuild { output } => cmd_emu_build(&output),
         Task::EmuRun { qemu_args } => cmd_emu_run(&qemu_args),
@@ -173,7 +182,8 @@ fn main() {
             port,
             board,
             embed_boot,
-        } => cmd_flash(&port, &board, embed_boot),
+            clean,
+        } => cmd_flash(&port, &board, embed_boot, clean),
         Task::Monitor { port } => cmd_monitor(&port),
         Task::Pack {
             platform,
@@ -312,8 +322,13 @@ fn cmd_build_flash(
     board: &str,
     embed_boot: bool,
     bootrom_path: Option<&Path>,
+    clean: bool,
 ) -> Result<(), String> {
     let target = board_to_target(board)?;
+
+    if clean {
+        clean_espidf_cmake(target);
+    }
 
     let mut cmd = esp_cmd("cargo");
     cmd.args(["build", "-p", "firmware", "--target", target, "--release"])
@@ -352,7 +367,7 @@ fn cmd_build_flash(
 
 fn cmd_build_image(board: &str, output: &Path) -> Result<(), String> {
     let target = board_to_target(board)?;
-    cmd_build_flash(board, false, None)?;
+    cmd_build_flash(board, false, None, false)?;
 
     let bin = workspace_root()
         .join("target")
@@ -443,9 +458,9 @@ fn cmd_monitor(port: &str) -> Result<(), String> {
     run(Command::new("espflash").args(["monitor", "--port", port]))
 }
 
-fn cmd_flash(port: &str, board: &str, embed_boot: bool) -> Result<(), String> {
+fn cmd_flash(port: &str, board: &str, embed_boot: bool, clean: bool) -> Result<(), String> {
     let target = board_to_target(board)?;
-    cmd_build_flash(board, embed_boot, None)?;
+    cmd_build_flash(board, embed_boot, None, clean)?;
 
     let bin = workspace_root()
         .join("target")
@@ -485,6 +500,37 @@ fn esp_cmd(program: &str) -> Command {
     let mut cmd = Command::new(program);
     cmd.arg("+esp");
     cmd
+}
+
+/// Delete the ESP-IDF CMake build output directories for the given target so
+/// that the next build fully reconfigures from `sdkconfig.defaults`.
+/// Glob pattern: `target/<target>/release/build/esp-idf-sys-*/out/build`
+fn clean_espidf_cmake(target: &str) {
+    let build_root = workspace_root()
+        .join("target")
+        .join(target)
+        .join("release")
+        .join("build");
+
+    let Ok(entries) = std::fs::read_dir(&build_root) else {
+        return;
+    };
+
+    let mut cleaned = 0usize;
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if name.starts_with("esp-idf-sys-") {
+            let dir = entry.path();
+            println!("==> cleaning ESP-IDF build output: {}", dir.display());
+            let _ = std::fs::remove_dir_all(&dir);
+            cleaned += 1;
+        }
+    }
+
+    if cleaned == 0 {
+        println!("==> nothing to clean (no ESP-IDF CMake cache found)");
+    }
 }
 
 fn workspace_root() -> PathBuf {

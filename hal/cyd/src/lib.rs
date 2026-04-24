@@ -167,15 +167,10 @@ impl CydPlatform {
             )
         };
 
-        // Load touch calibration from NVS (written by recovery TOUCH CALIBRATION).
-        // Falls back to full-range defaults if no calibration has been saved yet.
-        let touch_cal = match storage::nvs_get("fp-hal", "touch-cal") {
-            Ok(bytes) => input::TouchCal::from_bytes(&bytes).unwrap_or_default(),
-            Err(_) => {
-                log::info!("[hal-cyd] no touch calibration in NVS, using defaults");
-                input::TouchCal::default()
-            }
-        };
+        // Touch calibration is stored on SD (via SdPlatform above us in the boot
+        // chain). Use defaults here; the firmware's SdPlatform will load cal from
+        // /.flashpoint/nvs/fp-hal.bin if present.
+        let touch_cal = input::TouchCal::default();
 
         let touch = input::TouchBitbang {
             clk: touch_clk,

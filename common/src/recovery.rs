@@ -24,8 +24,9 @@ enum RecoveryItem {
     DisplayTest,
     TouchCalib,
     LedTest,
-    WifiAp,   // only shown when FEAT_WIFI
-    UsbMount, // only shown when FEAT_USB_OTG
+    WifiAp,      // only shown when FEAT_WIFI
+    UsbMount,    // only shown when FEAT_USB_OTG
+    SetBootMode,
     Reboot,
 }
 
@@ -37,6 +38,7 @@ impl RecoveryItem {
             RecoveryItem::LedTest => "LED TEST",
             RecoveryItem::WifiAp => "WIFI AP RECOVERY",
             RecoveryItem::UsbMount => "USB MOUNT SD",
+            RecoveryItem::SetBootMode => "SET BOOT MODE",
             RecoveryItem::Reboot => "REBOOT",
         }
     }
@@ -128,8 +130,26 @@ pub fn recovery_main(platform: &dyn Platform) -> ! {
     let has_usb_otg = platform.features() & FEAT_USB_OTG != 0;
 
     if has_display {
-        recovery_display_menu(platform, has_wifi, has_usb_otg)
+        recovery_display_menu(platform, has_wifi, has_usb_otg, None)
     } else {
+        recovery_console(platform, has_wifi, has_usb_otg)
+    }
+}
+
+/// Enter recovery mode and display a persistent status message in the footer
+/// (e.g. "NO SD CARD - INSERT AND REBOOT").  Useful when recovery is triggered
+/// due to a boot error rather than a deliberate user action.
+pub fn recovery_main_with_status(platform: &dyn Platform, status: &str) -> ! {
+    log::warn!("[recovery] entering recovery mode — status: {}", status);
+
+    let has_display = platform.features() & FEAT_DISP_TFT != 0;
+    let has_wifi = platform.features() & FEAT_WIFI != 0;
+    let has_usb_otg = platform.features() & FEAT_USB_OTG != 0;
+
+    if has_display {
+        recovery_display_menu(platform, has_wifi, has_usb_otg, Some(status))
+    } else {
+        log::warn!("[recovery] status: {}", status);
         recovery_console(platform, has_wifi, has_usb_otg)
     }
 }
@@ -147,11 +167,12 @@ fn build_recovery_items(has_display: bool, has_wifi: bool, has_usb_otg: bool) ->
     if has_usb_otg {
         items.push(RecoveryItem::UsbMount);
     }
+    items.push(RecoveryItem::SetBootMode);
     items.push(RecoveryItem::Reboot);
     items
 }
 
-fn recovery_display_menu(platform: &dyn Platform, has_wifi: bool, has_usb_otg: bool) -> ! {
+fn recovery_display_menu(platform: &dyn Platform, has_wifi: bool, has_usb_otg: bool, status: Option<&str>) -> ! {
     let items = build_recovery_items(true, has_wifi, has_usb_otg);
 
     let mut selected: usize = 0;
@@ -159,7 +180,7 @@ fn recovery_display_menu(platform: &dyn Platform, has_wifi: bool, has_usb_otg: b
     let h = platform.display_height();
 
     // Draw initial menu + log over UART
-    recovery_draw_menu(platform, &items, selected, w, h, 0);
+    recovery_draw_menu(platform, &items, selected, w, h, 0, status);
     #[cfg(not(feature = "no-uart-recovery"))]
     uart_log_menu(&items, selected);
 
@@ -172,10 +193,10 @@ fn recovery_display_menu(platform: &dyn Platform, has_wifi: bool, has_usb_otg: b
             if let Some(byte) = raw_byte {
                 if let Some(idx) = uart_byte_to_index(byte, items.len()) {
                     selected = idx;
-                    recovery_draw_menu(platform, &items, selected, w, h, 0);
+                    recovery_draw_menu(platform, &items, selected, w, h, 0, status);
                     log::info!("[recovery] running: {}", items[selected].label());
                     recovery_run_item(platform, items[selected]);
-                    recovery_draw_menu(platform, &items, selected, w, h, 0);
+                    recovery_draw_menu(platform, &items, selected, w, h, 0, status);
                     uart_log_menu(&items, selected);
                     platform.sleep_ms(50);
                     continue;
@@ -186,20 +207,20 @@ fn recovery_display_menu(platform: &dyn Platform, has_wifi: bool, has_usb_otg: b
                     if selected > 0 {
                         selected -= 1;
                     }
-                    recovery_draw_menu(platform, &items, selected, w, h, 0);
+                    recovery_draw_menu(platform, &items, selected, w, h, 0, status);
                     uart_log_menu(&items, selected);
                 }
                 Some(Event::BtnDown) => {
                     if selected + 1 < items.len() {
                         selected += 1;
                     }
-                    recovery_draw_menu(platform, &items, selected, w, h, 0);
+                    recovery_draw_menu(platform, &items, selected, w, h, 0, status);
                     uart_log_menu(&items, selected);
                 }
                 Some(Event::BtnSelect) => {
                     log::info!("[recovery] running: {}", items[selected].label());
                     recovery_run_item(platform, items[selected]);
-                    recovery_draw_menu(platform, &items, selected, w, h, 0);
+                    recovery_draw_menu(platform, &items, selected, w, h, 0, status);
                     uart_log_menu(&items, selected);
                 }
                 _ => {}
@@ -211,17 +232,17 @@ fn recovery_display_menu(platform: &dyn Platform, has_wifi: bool, has_usb_otg: b
                 if selected > 0 {
                     selected -= 1;
                 }
-                recovery_draw_menu(platform, &items, selected, w, h, 0);
+                recovery_draw_menu(platform, &items, selected, w, h, 0, status);
             }
             Some(Event::BtnDown) => {
                 if selected + 1 < items.len() {
                     selected += 1;
                 }
-                recovery_draw_menu(platform, &items, selected, w, h, 0);
+                recovery_draw_menu(platform, &items, selected, w, h, 0, status);
             }
             Some(Event::BtnSelect) => {
                 recovery_run_item(platform, items[selected]);
-                recovery_draw_menu(platform, &items, selected, w, h, 0);
+                recovery_draw_menu(platform, &items, selected, w, h, 0, status);
             }
             _ => {}
         }
@@ -236,6 +257,7 @@ fn recovery_draw_menu(
     w: u16,
     h: u16,
     _band: u16,
+    status: Option<&str>,
 ) {
     // ── Layout constants (pixels) ──────────────────────────────────────────
     // Header block: 2px top padding + 8px title + 2px gap + 1px border = 13 rows (0..=12)
@@ -348,6 +370,17 @@ fn recovery_draw_menu(
                     COLOR_DIM,
                     bg,
                 );
+            }
+        }
+
+        // ── Footer status text (amber) ─────────────────────────────────────
+        if let Some(msg) = status {
+            const STATUS_COLOR: u16 = 0xFFE0; // amber
+            let text_y = footer_border_y + 2;
+            if y >= text_y && y < text_y + 8 {
+                let char_row = (y - text_y) as u8;
+                let lx = text_x_center(w, msg);
+                draw_text_row(&mut row[..w as usize * 2], lx, msg, char_row, STATUS_COLOR, COLOR_BG);
             }
         }
 
@@ -546,7 +579,7 @@ fn recovery_run_item(platform: &dyn Platform, item: RecoveryItem) {
                 }
                 Err(e) => {
                     log::error!("[cal] NVS write failed: {:?}", e);
-                    "NVS FAILED"
+                    "SD FAILED"
                 }
             };
             let sx = text_x_center(w, status) as u16;
@@ -583,6 +616,25 @@ fn recovery_run_item(platform: &dyn Platform, item: RecoveryItem) {
             // transfer ROMs to/from the SD card without removing it physically.
             // Boot-ROMs may implement their own version of this via host API.
             platform.sleep_ms(1000);
+        }
+        RecoveryItem::SetBootMode => {
+            // Toggle boot mode between "wasm" (default) and "lua".
+            let current_bytes = platform
+                .nvs_read("flashpoint", "boot-mode")
+                .unwrap_or_default();
+            let is_lua = current_bytes == b"lua";
+            let new_mode: &[u8] = if is_lua { b"wasm" } else { b"lua" };
+            match platform.nvs_write("flashpoint", "boot-mode", new_mode) {
+                Ok(()) => {
+                    log::info!(
+                        "[recovery] boot mode → {}",
+                        core::str::from_utf8(new_mode).unwrap_or("?")
+                    );
+                }
+                Err(e) => {
+                    log::error!("[recovery] failed to set boot mode: {:?}", e);
+                }
+            }
         }
         RecoveryItem::Reboot => {
             log::info!("[recovery] rebooting...");

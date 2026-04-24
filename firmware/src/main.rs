@@ -5,6 +5,12 @@
 
 pub mod hal;
 mod stage1;
+pub mod fs;
+#[cfg(feature = "board-cyd")]
+pub mod sd_config;
+#[cfg(feature = "board-cyd")]
+pub mod sd_platform;
+pub mod runtime;
 
 // CYD (ESP32-2432S028R) device capabilities.
 // QEMU mirrors these for test parity.
