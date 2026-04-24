@@ -26,10 +26,13 @@ pub struct ExFatFs<'a> {
 }
 
 impl<'a> ExFatFs<'a> {
-    pub fn mount(platform: &'a dyn Platform) -> Result<Self, FsError> {
-        let dev = PlatformBlockDevice::new(platform);
+    pub fn mount(platform: &'a dyn Platform, lba_offset: u32) -> Result<Self, FsError> {
+        let dev = PlatformBlockDevice::with_offset(platform, lba_offset);
         let mut fs = ExFs::new(dev);
-        fs.mount().map_err(|_| FsError::InvalidFilesystem)?;
+        fs.mount().map_err(|e| {
+            log::error!("[fs/exfat] mount failed: {:?}", e);
+            FsError::InvalidFilesystem
+        })?;
         Ok(Self { inner: Some(fs) })
     }
 

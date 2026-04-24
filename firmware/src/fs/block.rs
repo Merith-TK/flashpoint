@@ -2,20 +2,33 @@
 ///   - `embedded_sdmmc::BlockDevice`  (FAT32 backend)
 ///   - `exfat_slim::blocking::io::BlockDevice` (exFAT backend)
 ///
-/// Both traits are identical in terms of what they need: read/write a 512-byte
-/// sector by LBA index.  We implement both for the same wrapper type.
+/// `lba_offset` is added to every sector number before the I/O call.  Use 0
+/// for whole-disk formats and the partition's LBA start for MBR-partitioned
+/// cards — exfat-slim requires that LBA 0 maps to the exFAT boot sector.
 
 use common::{Platform, PlatformError};
 
-// ─── Shared wrapper ───────────────────────────────────────────────────────────
+// ─── Shared wrapper ────────────────────────────────────────────────────────────
 
 pub struct PlatformBlockDevice<'a> {
     platform: &'a dyn Platform,
+    /// Added to every LBA before passing to the platform.
+    lba_offset: u32,
+}
+
+impl core::fmt::Debug for PlatformBlockDevice<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "PlatformBlockDevice {{ lba_offset: {} }}", self.lba_offset)
+    }
 }
 
 impl<'a> PlatformBlockDevice<'a> {
     pub fn new(platform: &'a dyn Platform) -> Self {
-        Self { platform }
+        Self { platform, lba_offset: 0 }
+    }
+
+    pub fn with_offset(platform: &'a dyn Platform, lba_offset: u32) -> Self {
+        Self { platform, lba_offset }
     }
 }
 
@@ -33,7 +46,7 @@ impl<'a> embedded_sdmmc::BlockDevice for PlatformBlockDevice<'a> {
     ) -> Result<(), Self::Error> {
         for (i, block) in blocks.iter_mut().enumerate() {
             self.platform
-                .sd_read_sectors(start_block_idx.0 + i as u32, &mut block.contents)?;
+                .sd_read_sectors(self.lba_offset + start_block_idx.0 + i as u32, &mut block.contents)?;
         }
         Ok(())
     }
@@ -45,7 +58,7 @@ impl<'a> embedded_sdmmc::BlockDevice for PlatformBlockDevice<'a> {
     ) -> Result<(), Self::Error> {
         for (i, block) in blocks.iter().enumerate() {
             self.platform
-                .sd_write_sectors(start_block_idx.0 + i as u32, &block.contents)?;
+                .sd_write_sectors(self.lba_offset + start_block_idx.0 + i as u32, &block.contents)?;
         }
         Ok(())
     }
@@ -66,7 +79,7 @@ impl<'a> exfat_slim::blocking::io::BlockDevice for PlatformBlockDevice<'a> {
         lba: u32,
         block: &mut exfat_slim::blocking::io::Block,
     ) -> Result<(), Self::Error> {
-        self.platform.sd_read_sectors(lba, block)
+        self.platform.sd_read_sectors(self.lba_offset + lba, block)
     }
 
     fn write(
@@ -74,7 +87,7 @@ impl<'a> exfat_slim::blocking::io::BlockDevice for PlatformBlockDevice<'a> {
         lba: u32,
         block: &exfat_slim::blocking::io::Block,
     ) -> Result<(), Self::Error> {
-        self.platform.sd_write_sectors(lba, block)
+        self.platform.sd_write_sectors(self.lba_offset + lba, block)
     }
 
     fn flush(&mut self) -> Result<(), Self::Error> {

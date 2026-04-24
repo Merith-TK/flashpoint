@@ -35,11 +35,17 @@ impl<'a> Fat32Fs<'a> {
 
         let raw_vol = mgr
             .open_raw_volume(VolumeIdx(0))
-            .map_err(|_| FsError::InvalidFilesystem)?;
+            .map_err(|e| {
+                log::error!("[fs/fat] open_raw_volume failed: {:?}", e);
+                FsError::InvalidFilesystem
+            })?;
 
         let raw_root = mgr
             .open_root_dir(raw_vol)
-            .map_err(|_| FsError::InvalidFilesystem)?;
+            .map_err(|e| {
+                log::error!("[fs/fat] open_root_dir failed: {:?}", e);
+                FsError::InvalidFilesystem
+            })?;
 
         Ok(Self { mgr, raw_vol, raw_root })
     }
